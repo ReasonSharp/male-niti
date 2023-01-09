@@ -200,6 +200,9 @@ upgrade() {
   PLATFORM_VERSION=0
  fi
  if fn-exists upgrade-v"${PLATFORM_VERSION}"; then
+  . "./platform-versions/v_${PLATFORM_VERSION}.sh"
+  git checkout "${PLATFORM_COMMIT}"
+  git submodule update --checkout
   upgrade-v"${PLATFORM_VERSION}"
  else
   echo "${0}: version ${PLATFORM_VERSION} cannot be upgraded: missing upgrade script"
@@ -211,6 +214,9 @@ downgrade() {
   PLATFORM_VERSION=0
  fi
  if fn-exists downgrade-v"${PLATFORM_VERSION}"; then
+  . "./platform-versions/v_$((PLATFORM_VERSION - 1)).sh"
+  git checkout "${PLATFORM_COMMIT}"
+  git submodule update --checkout
   downgrade-v"${PLATFORM_VERSION}" "${1}"
  else
   echo "${0}: version ${PLATFORM_VERSION} cannot be downgraded"
