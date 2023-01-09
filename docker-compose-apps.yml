@@ -1,0 +1,10 @@
+version: "3.2"
+services:
+  mbapp:
+    image: mbapp:${MBAPP_VERSION}
+    networks:
+      - mb-platform
+    restart: unless-stopped
+
+networks:
+  mb-platform:

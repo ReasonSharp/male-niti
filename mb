@@ -1,0 +1,292 @@
+#!/bin/bash
+
+verify-env() {
+ [ -z "${1}" ] || [ ! "${1}" = "dev" ] && [ ! "${1}" = "test" ] && [ ! "${1}" = "stage" ] && [ ! "${1}" = "prod" ]
+}
+fn-exists() {
+ declare -F "${1}" > /dev/null
+}
+
+unset ENV
+
+[[ -f "./platform_version.sh" ]]               && source "./platform_version.sh"
+[[ -f "./env.sh"      ]]                       && source "./env.sh"
+[[ -z ${ENV} ]] && [ "${1}" != "prepare-env" ] && echo "${0}: missing or invalid env.sh; run: '${0} prepare-env { dev | test | stage | prod }'" && exit 1
+[[ -f "./env-${ENV}.sh" ]]                     && source "./env-${ENV}.sh"
+
+prepare-env() {
+ if verify-env "${1}"; then
+  echo "usage: '${0} prepare-env { dev | test | stage | prod }"
+  exit 1
+ fi
+ envsubst < "./env.template" > "./env-${1}.sh"
+ [[ ! -f "./platform_version.sh" ]] && printf "%s\n" "#!/bin/bash" "" "export PLATFORM_VERSION=0" > "./platform_version.sh"
+ printf "%s\n" "#!/bin/bash" "" "export ENV=${1}" > "./env.sh"
+ echo "${0}: check file './env-${1}.sh', then run '${0} write-configs'"
+}
+write-configs() {
+ envsubst '${APP_SERVER_NAME},${WEB_SERVER_NAME}' < "./config/tlsoffloader/tlsoffloader.conf" > "./config/tlsoffloader/tlsoffloader-${ENV}.conf"
+}
+
+preserve-image() {
+ docker run -d --name ${1} ${2} //bin/sh -c "while true; do sleep 1; done"
+}
+preserve-images() {
+ preserve-image img_nginx nginx:latest
+ preserve-image img_certbot certbot/certbot:latest
+ preserve-image imb_node node:latest
+ preserve-image imb_mbapp mbapp:latest
+}
+release-images() {
+ docker stop $(docker ps --format '{{.Names}}' | grep img_)
+ docker rm $(docker ps -a --format '{{.Names}}' | grep img_)
+}
+
+### CONTAINER MANIPULATION ###
+
+tlsoffloader() {
+ if fn-exists tlsoffloader-"${1}"; then
+  tlsoffloader-"${1}" "${2}"
+ else
+  echo
+  echo "usage: ${0} tlsoffloader [param]"
+  echo
+  echo "PARAMS:"
+  echo
+  echo " --------------------------------------------------------------------------------------------------"
+  echo "  run             | creates and runs the tlsoffloader container"
+  echo "  logs [LINES]    | shows last [LINES] lines of container's logs, or all by default"
+  echo "  stop            | stops and removes the container"
+  echo "  recreate        | stops and removes the container, then runs it anew"
+  echo " --------------------------------------------------------------------------------------------------"
+  echo
+ fi
+}
+tlsoffloader-run() {
+ docker compose -p mb-platform -f docker-compose-infra.yml up -d --no-recreate tlsoffloader
+}
+tlsoffloader-logs() {
+ if [[ -z "${1}" ]]; then LINES=all; else LINES="${1}"; fi
+ docker compose -p mb-platform -f docker-compose-infra.yml logs -f -t --tail "${LINES}" tlsoffloader
+}
+tlsoffloader-stop() {
+ docker compose -p mb-platform -f docker-compose-infra.yml stop tlsoffloader
+ docker compose -p mb-platform -f docker-compose-infra.yml rm -f tlsoffloader
+}
+tlsoffloader-recreate() {
+ tlsoffloader-stop
+ tlsoffloader-run
+}
+
+certbot() {
+ if fn-exists certbot-"${1}"; then
+  certbot-"${1}" "${2}"
+ else
+  echo
+  echo "usage: ${0} certbot [param]"
+  echo
+  echo "PARAMS:"
+  echo
+  echo " --------------------------------------------------------------------------------------------------"
+  echo "  run             | creates and runs the certbot container"
+  echo "  logs [LINES]    | shows last [LINES] lines of container's logs, or all by default"
+  echo "  stop            | stops and removes the container"
+  echo "  recreate        | stops and removes the container, then runs it anew"
+  echo " --------------------------------------------------------------------------------------------------"
+  echo
+ fi
+}
+certbot-run() {
+ docker compose -p mb-platform -f docker-compose-infra.yml up -d --no-recreate certbot
+}
+certbot-logs() {
+ if [[ -z "${1}" ]]; then LINES=all; else LINES="${1}"; fi
+ docker compose -p mb-platform -f docker-compose-infra.yml logs -f -t --tail "${LINES}" certbot
+}
+certbot-stop() {
+ docker compose -p mb-platform -f docker-compose-infra.yml stop certbot
+ docker compose -p mb-platform -f docker-compose-infra.yml rm -f certbot
+}
+certbot-recreate() {
+ certbot-stop
+ certbot-run
+}
+
+app() {
+ if fn-exists app-"${1}"; then
+  app-"${1}" "${2}"
+ else
+  echo
+  echo "usage: ${0} app [param]"
+  echo
+  echo "PARAMS:"
+  echo
+  echo " --------------------------------------------------------------------------------------------------"
+  echo "  build           | builds the mbapp web app"
+  echo "  run             | creates and runs the mbapp container"
+  echo "  logs [LINES]    | shows last [LINES] lines of container's logs, or all by default"
+  echo "  stop            | stops and removes the container"
+  echo "  rm              | removes the app container"
+  echo "  rmi             | removes the app image"
+  echo "  recreate        | stops and removes the container, then runs it anew"
+  echo " --------------------------------------------------------------------------------------------------"
+  echo
+ fi
+}
+app-build() {
+ cd sources/
+ docker build -f Dockerfile.mb-app -t mbapp:latest --build-arg ENV=${ENV} .
+ cd ../..
+}
+app-run() {
+ docker compose -p mb-platform -f docker-compose-apps.yml up -d --no-recreate mbapp
+}
+app-logs() {
+ if [[ -z "${1}" ]]; then LINES=all; else LINES="${1}"; fi
+ docker compose -p mb-platform -f docker-compose-apps.yml logs -f -t --tail "${LINES}" mbapp
+}
+app-stop() {
+ docker compose -p mb-platform -f docker-compose-apps.yml stop mbapp
+ docker compose -p mb-platform -f docker-compose-apps.yml rm -f mbapp
+}
+app-rm() {
+ docker rm $(docker ps -a | grep mbapp | awk '{print $1}')
+}
+app-rmi() {
+ docker rmi $(docker images | grep mbapp | awk '{print $3}')
+}
+app-recreate() {
+ app-stop
+ app-rm
+ app-rmi
+ app-build
+ app-run
+}
+
+### PLATFORM VERSION MANIPULATION ###
+
+upgrade-v0() {
+ echo "${0}: upgrading v0 -> v1"
+ export DOMAINS=(${ALL_DOMAINS})
+ . "./scripts/letsencrypt/letsencrypt-init.sh"
+ write-configs
+ letsencrypt-init
+ tlsoffloader-run
+ if [ "${ENV}" = "prod" ]; then
+  certbot-run
+ fi
+ app-recreate
+ printf "%s\n" "#!/bin/bash" "" "export PLATFORM_VERSION=1" > "./platform_version.sh"
+}
+downgrade-v1() {
+ echo "${0}: downgrading v1 -> v0"
+ tlsoffloader-stop
+ certbot-stop
+ app-stop
+ VOL_PARAM=
+ if [ "${1}" = "--vol" ]; then
+  VOL_PARAM=" --volumes"
+ fi
+ preserve-images
+ docker system prune -a"${VOL_PARAM}" -f
+ release-images
+ printf "%s\n" "#!/bin/bash" "" "export PLATFORM_VERSION=0" > "./platform_version.sh"
+}
+
+### PLATFORM MANIPULATION ###
+
+upgrade() {
+ if [ -z "${PLATFORM_VERSION}" ]; then
+  PLATFORM_VERSION=0
+ fi
+ if fn-exists upgrade-v"${PLATFORM_VERSION}"; then
+  upgrade-v"${PLATFORM_VERSION}"
+ else
+  echo "${0}: version ${PLATFORM_VERSION} cannot be upgraded: missing upgrade script"
+  exit 1
+ fi
+}
+downgrade() {
+ if [ -z "${PLATFORM_VERSION}" ]; then
+  PLATFORM_VERSION=0
+ fi
+ if fn-exists downgrade-v"${PLATFORM_VERSION}"; then
+  downgrade-v"${PLATFORM_VERSION}" "${1}"
+ else
+  echo "${0}: version ${PLATFORM_VERSION} cannot be downgraded"
+  exit 1
+ fi
+}
+reupgrade() {
+ if [ "${ENV}" = "prod" ]; then
+  echo "${0}: refusing to reupgrade in production environment: downgrade, then upgrade manually"
+  exit 1
+ fi
+ downgrade
+ upgrade
+}
+reset() {
+ FULL=0
+ VOL=0
+ if [ "${1}" = "--full" ]; then
+  FULL=1
+ elif [ "${1}" = "--vol" ]; then
+  VOL=1
+ fi
+ if [ "${2}" = "--full" ]; then
+  FULL=1
+ elif [ "${2}" = "--vol" ]; then
+  VOL=1
+ fi
+ if [ "${ENV}" = "dev" ] || [ "${ENV}" = "test" ]; then
+  if [[ "${FULL}" -eq 1 ]]; then
+   rm -f ./env*.sh
+  fi
+  VOL_PARAM=
+  if [[ "${VOL}" -eq 1 ]]; then
+   VOL_PARAM="--vol"
+  fi
+  rm -f ./config/tlsoffloader/tlsoffloader-*.conf
+  rm -rf "./files"
+  source "./platform_version.sh"
+  while [[ "${PLATFORM_VERSION}" -gt 0 ]]; do
+   downgrade "${VOL_PARAM}"
+   source "./platform_version.sh"
+  done
+ else
+  echo "${0}: refusing to reset ${ENV} environment"
+  exit 1
+ fi
+}
+
+case "${1}" in
+ prepare-env)    prepare-env "${2}";;
+ write-configs)  write-configs;;
+ upgrade)        upgrade;;
+ downgrade)      downgrade "${2}";;
+ reupgrade)      reupgrade;;
+ reset)          reset "${2}";;
+ tlsoffloader)   tlsoffloader "${2}" "${3}";;
+ certbot)        certbot "${2}" "${3}";;
+ app)            app "${2}" "${3}";;
+ *)
+  echo
+  echo "usage: ${0} {command} [parameters]"
+  echo
+  echo "COMMANDS:"
+  echo
+  echo " ---------------------------------------------------------------------------------------------"
+  echo "  prepare-env [param]    | prepares [param] environment, where [param] is dev|test|stage|prod"
+  echo "  write-configs          | writes configuration files based on values in env-[ENV].sh script"
+  echo " ---------------------------------------------------------------------------------------------"
+  echo "  upgrade                | upgrades the platform to the next version"
+  echo "  downgrade [--vol]      | downgrades the platform to the previous version [removes volumes]"
+  echo "  reupgrade              | best effort to downgrade platform version, then upgrade again"
+  echo "  reset [--full] [--vol] | resets the environment - development or test only!"
+  echo " ---------------------------------------------------------------------------------------------"
+  echo "  tlsoffloader [param]   | manipulates the tlsoffloader container"
+  echo "  certbot [param]        | manipulates the certbot container"
+  echo "  app [param]            | manipulates the mbapp container"
+  echo " ---------------------------------------------------------------------------------------------"
+  echo
+esac
