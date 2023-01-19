@@ -1,4 +1,4 @@
-FROM node:latest AS build
+FROM node:${NODE_VERSION} AS build
 COPY mb-app/package*.json /mb/
 WORKDIR /mb
 RUN npm install

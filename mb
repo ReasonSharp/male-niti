@@ -26,16 +26,23 @@ prepare-env() {
 }
 write-configs() {
  envsubst '${APP_SERVER_NAME},${WEB_SERVER_NAME}' < "./config/tlsoffloader/tlsoffloader.conf" > "./config/tlsoffloader/tlsoffloader-${ENV}.conf"
+ envsubst '${NODE_VERSION}'                       < "./sources/Dockerfile.mb-app.sample"      > "./sources/Dockerfile.mb-app"
 }
 
 preserve-image() {
- docker run -d --name ${1} ${2} //bin/sh -c "while true; do sleep 1; done"
+ if [ "${1}" = "img_certbot" ]; then
+  if [ "${ENV}" = "prod" ]; then
+   certbot-run
+  fi
+ else
+  docker run -d --name ${1} ${2} //bin/sh -c "while true; do sleep 1; done"
+ fi
 }
 preserve-images() {
- preserve-image img_nginx nginx:latest
- preserve-image img_certbot certbot/certbot:latest
- preserve-image imb_node node:latest
- preserve-image imb_mbapp mbapp:latest
+ preserve-image img_nginx nginx:${NGINX_VERSION}
+ preserve-image img_certbot certbot/certbot:${CERTBOT_VERSION}
+ preserve-image img_node node:${NODE_VERSION}
+ preserve-image img_mbapp mbapp:${MBAPP_VERSION}
 }
 release-images() {
  docker stop $(docker ps --format '{{.Names}}' | grep img_)
@@ -136,7 +143,7 @@ app() {
 app-build() {
  cd sources/
  docker build -f Dockerfile.mb-app -t mbapp:latest --build-arg ENV=${ENV} .
- cd ../..
+ cd ..
 }
 app-run() {
  docker compose -p mb-platform -f docker-compose-apps.yml up -d --no-recreate mbapp
@@ -168,6 +175,19 @@ app-recreate() {
 upgrade-v0() {
  echo "${0}: upgrading v0 -> v1"
  export DOMAINS=(${ALL_DOMAINS})
+ CDIR=`pwd`
+
+ # checkout specific module versions
+ cd "${DBUPDATER_FOLDER}"
+ git checkout "${DBUPDATER_COMMIT}"
+ cd "${CDIR}"
+ cd "${MBAPP_FOLDER}"
+ git checkout "${MBAPP_COMMIT}"
+ cd "${CDIR}"
+ cd "${WWW_FOLDER}"
+ git checkout "${WWW_COMMIT}"
+ cd "${CDIR}"
+
  . "./scripts/letsencrypt/letsencrypt-init.sh"
  write-configs
  letsencrypt-init
@@ -176,6 +196,18 @@ upgrade-v0() {
   certbot-run
  fi
  app-recreate
+
+ # restore module versions
+ cd "${DBUPDATER_FOLDER}"
+ git checkout "${DBUPDATER_BRANCH}"
+ cd "${CDIR}"
+ cd "${MBAPP_FOLDER}"
+ git checkout "${MBAPP_BRANCH}"
+ cd "${CDIR}"
+ cd "${WWW_FOLDER}"
+ git checkout "${WWW_BRANCH}"
+ cd "${CDIR}"
+
  printf "%s\n" "#!/bin/bash" "" "export PLATFORM_VERSION=1" > "./platform_version.sh"
 }
 downgrade-v1() {
@@ -201,8 +233,6 @@ upgrade() {
  fi
  if fn-exists upgrade-v"${PLATFORM_VERSION}"; then
   . "./platform-versions/v_${PLATFORM_VERSION}.sh"
-  git checkout "${PLATFORM_COMMIT}"
-  git submodule update --checkout
   upgrade-v"${PLATFORM_VERSION}"
  else
   echo "${0}: version ${PLATFORM_VERSION} cannot be upgraded: missing upgrade script"
@@ -215,8 +245,6 @@ downgrade() {
  fi
  if fn-exists downgrade-v"${PLATFORM_VERSION}"; then
   . "./platform-versions/v_$((PLATFORM_VERSION - 1)).sh"
-  git checkout "${PLATFORM_COMMIT}"
-  git submodule update --checkout
   downgrade-v"${PLATFORM_VERSION}" "${1}"
  else
   echo "${0}: version ${PLATFORM_VERSION} cannot be downgraded"
