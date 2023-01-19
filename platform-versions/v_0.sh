@@ -4,6 +4,7 @@ export NGINX_VERSION=1.23.3
 export CERTBOT_VERSION=v1.32.2
 export NODE_VERSION=18.13.0-alpine3.16
 export MBAPP_VERSION=latest
+export MARIADB_VERSION=10.9.3
 
 # DBUpdater
 export DBUPDATER_COMMIT="1278320"
@@ -19,3 +20,8 @@ export MBAPP_BRANCH=main
 export WWW_COMMIT=6d49868
 export WWW_FOLDER="./sources/www"
 export WWW_BRANCH=main
+
+# BlagajnaDB
+export BLAGAJNADB_COMMIT=d2c1f32
+export BLAGAJNADB_FOLDER="./sources/blagajnadb"
+export BLAGAJNADB_BRANCH=main

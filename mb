@@ -25,6 +25,10 @@ prepare-env() {
  echo "${0}: check file './env-${1}.sh', then run '${0} write-configs'"
 }
 write-configs() {
+ mkdir -p "./data/blagajnadb/mariadb"
+ mkdir -p "./data/blagajnadb/data"
+ cp "./config/blagajnadb/my.cnf" "./data/blagajnadb/mariadb/my.cnf"
+ echo "${BLAGAJNADB_ROOT_PASS}" > "./config/blagajnadb/mysql-root-pass-${ENV}.txt"
  envsubst '${APP_SERVER_NAME},${WEB_SERVER_NAME}' < "./config/tlsoffloader/tlsoffloader.conf" > "./config/tlsoffloader/tlsoffloader-${ENV}.conf"
  envsubst '${NODE_VERSION}'                       < "./sources/Dockerfile.mb-app.sample"      > "./sources/Dockerfile.mb-app"
 }
@@ -43,6 +47,7 @@ preserve-images() {
  preserve-image img_certbot certbot/certbot:${CERTBOT_VERSION}
  preserve-image img_node node:${NODE_VERSION}
  preserve-image img_mbapp mbapp:${MBAPP_VERSION}
+ preserve-image img_mariadb mariadb:${MARIADB_VERSION}
 }
 release-images() {
  docker stop $(docker ps --format '{{.Names}}' | grep img_)
@@ -119,6 +124,61 @@ certbot-recreate() {
  certbot-run
 }
 
+blagajnadb() {
+ if fn-exists blagajnadb-"${1}"; then
+  blagajnadb-"${1}" "${2}"
+ else
+  echo
+  echo "usage: ${0} blagajnadb [param]"
+  echo
+  echo "PARAMS:"
+  echo
+  echo " --------------------------------------------------------------------------------------------------"
+  echo "  run             | creates and runs the container for the database"
+  echo "  logs [LINES]    | shows last [LINES] lines of container's logs, all by default"
+  echo "  stop            | stops and removes the container"
+  echo "  recreate        | stops and removes the container, then runs it anew (no init, volume preserved)"
+  echo "  upgrade [VER]   | runs the new upgrade scripts to upgrade the database to [VER] (max by default)"
+  echo "  downgrade [VER] | runs the downgrade script to downgrade the database to [VER] (default: cur-1)"
+  echo "  login           | logs into the database on the cli"
+  echo " --------------------------------------------------------------------------------------------------"
+  echo
+ fi
+}
+blagajnadb-login() {
+ DB_NAME=`docker ps --format "{{.Names}}" | grep blagajnadb`
+ docker exec -it ${DB_NAME} mysql -u root -p"${DB_ROOT_PASS}" malablagajna
+}
+blagajnadb-run() {
+ docker-compose -p mb-platform -f docker-compose-infra.yml up -d --no-recreate blagajnadb
+}
+blagajnadb-logs() {
+ if [[ -z "${1}" ]]; then LINES=all; else LINES="${1}"; fi
+ docker-compose -p mb-platform -f docker-compose-infra.yml logs -f -t --tail "${LINES}" blagajnadb
+}
+blagajnadb-stop() {
+ docker-compose -p mb-platform -f docker-compose-infra.yml down
+}
+blagajnadb-recreate() {
+ blagajnadb-stop
+ blagajnadb-run
+}
+# TODO -- need to run upgrade/downgrade scripts inside a MariaDB container
+blagajnadb-upgrade() {
+ CONT_NAME=`docker ps --format "{{.Names}}" | grep blagajnadb_1`
+ if [[ -z "${CONT_NAME}" ]]; then CONT_IP=127.0.0.1
+ else CONT_IP=`docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "${CONT_NAME}"`; fi
+ if [[ -z "${1}" ]]; then UPGRADE=--full; else UPGRADE=(--ver "${1}"); fi
+ scripts/dbupdater/dbupgrade scripts/malablagajna.db --demo ${UPGRADE} -h ${CONT_IP} --port=3306 -u root -p"${DB_ROOT_PASS}" malablagajna
+}
+blagajnadb-downgrade() {
+ CONT_NAME=`docker ps --format "{{.Names}}" | grep blagajnadb_1`
+ if [[ -z "${CONT_NAME}" ]]; then CONT_IP=127.0.0.1
+ else CONT_IP=`docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "${CONT_NAME}"`; fi
+ if [[ -z "${1}" ]]; then unset DOWNGRADE; else DOWNGRADE=(--ver "${1}"); fi
+ scripts/dbupdater/dbdowngrade scripts/malablagajna.db ${DOWNGRADE} -h ${CONT_IP} --port=3306 -u root -p"${DB_ROOT_PASS}" malablagajna
+}
+
 app() {
  if fn-exists app-"${1}"; then
   app-"${1}" "${2}"
@@ -187,6 +247,9 @@ upgrade-v0() {
  cd "${WWW_FOLDER}"
  git checkout "${WWW_COMMIT}"
  cd "${CDIR}"
+ cd "${BLAGAJNADB_FOLDER}"
+ git checkout "${BLAGAJNADB_COMMIT}"
+ cd "${CDIR}"
 
  . "./scripts/letsencrypt/letsencrypt-init.sh"
  write-configs
@@ -195,6 +258,8 @@ upgrade-v0() {
  if [ "${ENV}" = "prod" ]; then
   certbot-run
  fi
+ blagajnadb-recreate
+ blagajnadb-upgrade "001"
  app-recreate
 
  # restore module versions
@@ -207,6 +272,9 @@ upgrade-v0() {
  cd "${WWW_FOLDER}"
  git checkout "${WWW_BRANCH}"
  cd "${CDIR}"
+ cd "${BLAGAJNADB_FOLDER}"
+ git checkout "${BLAGAJNADB_BRANCH}"
+ cd "${CDIR}"
 
  printf "%s\n" "#!/bin/bash" "" "export PLATFORM_VERSION=1" > "./platform_version.sh"
 }
@@ -214,6 +282,7 @@ downgrade-v1() {
  echo "${0}: downgrading v1 -> v0"
  tlsoffloader-stop
  certbot-stop
+ blagajnadb-stop
  app-stop
  VOL_PARAM=
  if [ "${1}" = "--vol" ]; then
@@ -303,6 +372,7 @@ case "${1}" in
  tlsoffloader)   tlsoffloader "${2}" "${3}";;
  certbot)        certbot "${2}" "${3}";;
  app)            app "${2}" "${3}";;
+ blagajnadb)     blagajnadb "${2}" "${3}";;
  *)
   echo
   echo "usage: ${0} {command} [parameters]"
@@ -321,6 +391,7 @@ case "${1}" in
   echo "  tlsoffloader [param]   | manipulates the tlsoffloader container"
   echo "  certbot [param]        | manipulates the certbot container"
   echo "  app [param]            | manipulates the mbapp container"
+  echo "  blagajnadb [param]     | manipulates the blagajnadb container"
   echo " ---------------------------------------------------------------------------------------------"
   echo
 esac

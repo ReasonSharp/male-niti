@@ -24,9 +24,31 @@ services:
       - ./files/certificates/www:/var/www/certbot
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
 
+  blagajnadb:
+    image: mariadb:${MARIADB_VERSION}
+    restart: unless-stopped
+    command: ['mysqld', '--defaults-file=/etc/my.cnf', '--character-set-server=utf8mb4', '--collation-server=utf8mb4_unicode_ci', '--innodb-flush-log-at-trx-commit=0', '--max-sp-recursion-depth=1']
+    ports:
+      - "3306:3306"
+    networks:
+      - mb-platform
+    volumes:
+      - ./data/blagajnadb/mariadb/my.cnf:/etc/my.cnf:ro
+      - ./data/blagajnadb/data:/var/lib/mysql:rw
+    environment:
+      MARIADB_ROOT_PASSWORD_FILE: /run/secrets/rootpass
+      LANG: C.UTF-8
+    secrets:
+      - source: rootpass
+    cap_add:
+      - SYS_NICE
+
+
 networks:
   mb-platform:
 
 secrets:
   tlsoffloaderconf:
     file: "./config/tlsoffloader/tlsoffloader-${ENV}.conf"
+  rootpass:
+    file: "./config/blagajnadb/mysql-root-pass-${ENV}.txt"
