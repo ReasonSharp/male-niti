@@ -8,6 +8,7 @@ fn-exists() {
 }
 
 unset ENV
+export MSYS_NO_PATHCONV=1
 
 [[ -f "./platform_version.sh" ]]               && source "./platform_version.sh"
 [[ -f "./env.sh"      ]]                       && source "./env.sh"
@@ -25,9 +26,9 @@ prepare-env() {
  echo "${0}: check file './env-${1}.sh', then run '${0} write-configs'"
 }
 write-configs() {
- mkdir -p "./data/blagajnadb/mariadb"
- mkdir -p "./data/blagajnadb/data"
- cp "./config/blagajnadb/my.cnf" "./data/blagajnadb/mariadb/my.cnf"
+ mkdir -p "./files/blagajnadb/mariadb"
+ mkdir -p "./files/blagajnadb/data"
+ cp "./config/blagajnadb/my.cnf" "./files/blagajnadb/mariadb/my.cnf"
  echo "${BLAGAJNADB_ROOT_PASS}" > "./config/blagajnadb/mysql-root-pass-${ENV}.txt"
  envsubst '${APP_SERVER_NAME},${WEB_SERVER_NAME}' < "./config/tlsoffloader/tlsoffloader.conf" > "./config/tlsoffloader/tlsoffloader-${ENV}.conf"
  envsubst '${NODE_VERSION}'                       < "./sources/Dockerfile.mb-app.sample"      > "./sources/Dockerfile.mb-app"
@@ -150,33 +151,29 @@ blagajnadb-login() {
  docker exec -it ${DB_NAME} mysql -u root -p"${DB_ROOT_PASS}" malablagajna
 }
 blagajnadb-run() {
- docker-compose -p mb-platform -f docker-compose-infra.yml up -d --no-recreate blagajnadb
+ docker compose -p mb-platform -f docker-compose-infra.yml up -d --no-recreate blagajnadb
 }
 blagajnadb-logs() {
  if [[ -z "${1}" ]]; then LINES=all; else LINES="${1}"; fi
- docker-compose -p mb-platform -f docker-compose-infra.yml logs -f -t --tail "${LINES}" blagajnadb
+ docker compose -p mb-platform -f docker-compose-infra.yml logs -f -t --tail "${LINES}" blagajnadb
 }
 blagajnadb-stop() {
- docker-compose -p mb-platform -f docker-compose-infra.yml down
+ docker compose -p mb-platform -f docker-compose-infra.yml stop blagajnadb
 }
 blagajnadb-recreate() {
  blagajnadb-stop
  blagajnadb-run
 }
-# TODO -- need to run upgrade/downgrade scripts inside a MariaDB container
 blagajnadb-upgrade() {
- CONT_NAME=`docker ps --format "{{.Names}}" | grep blagajnadb_1`
- if [[ -z "${CONT_NAME}" ]]; then CONT_IP=127.0.0.1
- else CONT_IP=`docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "${CONT_NAME}"`; fi
- if [[ -z "${1}" ]]; then UPGRADE=--full; else UPGRADE=(--ver "${1}"); fi
- scripts/dbupdater/dbupgrade scripts/malablagajna.db --demo ${UPGRADE} -h ${CONT_IP} --port=3306 -u root -p"${DB_ROOT_PASS}" malablagajna
+ set -x
+ if [[ -z "${1}" ]]; then UPGRADE=--full; else UPGRADE="--ver ${1}"; fi
+ docker run --rm -v `pwd`/sources/blagajnadb:/blagajnadb:ro --network mb-platform_mb-platform $(docker build -f scripts/Dockerfile.dbupdater -q ./scripts) \
+  dbupgrade /blagajnadb --demo ${UPGRADE} -h blagajnadb --port=3306 -u root -p"${BLAGAJNADB_ROOT_PASS}" malablagajna
 }
 blagajnadb-downgrade() {
- CONT_NAME=`docker ps --format "{{.Names}}" | grep blagajnadb_1`
- if [[ -z "${CONT_NAME}" ]]; then CONT_IP=127.0.0.1
- else CONT_IP=`docker inspect -f '{{range.NetworkSettings.Networks}}{{.IPAddress}}{{end}}' "${CONT_NAME}"`; fi
- if [[ -z "${1}" ]]; then unset DOWNGRADE; else DOWNGRADE=(--ver "${1}"); fi
- scripts/dbupdater/dbdowngrade scripts/malablagajna.db ${DOWNGRADE} -h ${CONT_IP} --port=3306 -u root -p"${DB_ROOT_PASS}" malablagajna
+ if [[ -z "${1}" ]]; then unset DOWNGRADE; else DOWNGRADE="--ver ${1}"; fi
+ docker run --rm -v `pwd`/sources/blagajnadb:/blagajnadb:ro --network mb-platform_mb-platform $(docker build -f scripts/Dockerfile.dbupdater -q ./scripts) \
+  dbdowngrade /blagajnadb ${DOWNGRADE} -h blagajnadb --port=3306 -u root -p"${BLAGAJNADB_ROOT_PASS}" malablagajna
 }
 
 app() {
@@ -286,11 +283,14 @@ downgrade-v1() {
  app-stop
  VOL_PARAM=
  if [ "${1}" = "--vol" ]; then
-  VOL_PARAM=" --volumes"
+  VOL_PARAM="--volumes"
  fi
  preserve-images
- docker system prune -a"${VOL_PARAM}" -f
+ docker system prune -a "${VOL_PARAM}" -f
  release-images
+ if [ "${1}" = "--vol" ]; then
+  rm -rf ./files
+ fi
  printf "%s\n" "#!/bin/bash" "" "export PLATFORM_VERSION=0" > "./platform_version.sh"
 }
 
@@ -368,7 +368,7 @@ case "${1}" in
  upgrade)        upgrade;;
  downgrade)      downgrade "${2}";;
  reupgrade)      reupgrade;;
- reset)          reset "${2}";;
+ reset)          reset "${2}" "${3}";;
  tlsoffloader)   tlsoffloader "${2}" "${3}";;
  certbot)        certbot "${2}" "${3}";;
  app)            app "${2}" "${3}";;

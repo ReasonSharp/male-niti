@@ -33,8 +33,8 @@ services:
     networks:
       - mb-platform
     volumes:
-      - ./data/blagajnadb/mariadb/my.cnf:/etc/my.cnf:ro
-      - ./data/blagajnadb/data:/var/lib/mysql:rw
+      - ./files/blagajnadb/mariadb/my.cnf:/etc/my.cnf:ro
+      - ./files/blagajnadb/data:/var/lib/mysql:rw
     environment:
       MARIADB_ROOT_PASSWORD_FILE: /run/secrets/rootpass
       LANG: C.UTF-8
