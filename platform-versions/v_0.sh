@@ -1,7 +1,7 @@
 #!/bin/bash
 
 export NGINX_VERSION=1.23.3
-export CERTBOT_VERSION=v1.32.2
+export CERTBOT_VERSION=latest
 export NODE_VERSION=18.13.0-alpine3.16
 export MBAPP_VERSION=latest
 export MARIADB_VERSION=10.9.3
