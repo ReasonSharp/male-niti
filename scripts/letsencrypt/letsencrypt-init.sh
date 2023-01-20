@@ -45,9 +45,6 @@ letsencrypt-init() {
    esac
    
    if [ "${ENV}" != "prod" ]; then STAGING="--staging"; fi
- 
-   echo ${STAGING}
-   exit
    
    docker compose -p mb-platform -f "./docker-compose-infra.yml" run --rm --entrypoint "\
      certbot certonly --webroot -w /var/www/certbot \
