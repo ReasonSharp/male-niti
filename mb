@@ -45,7 +45,7 @@ preserve-image() {
 }
 preserve-images() {
  preserve-image img_nginx nginx:${NGINX_VERSION}
- preserve-image img_certbot certbot/certbot:${CERTBOT_VERSION}
+ preserve-image img_certbot certbot/dns-google:${CERTBOT_VERSION}
  preserve-image img_node node:${NODE_VERSION}
  preserve-image img_mbapp mbapp:${MBAPP_VERSION}
  preserve-image img_mariadb mariadb:${MARIADB_VERSION}

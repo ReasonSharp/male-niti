@@ -47,7 +47,7 @@ letsencrypt-init() {
    if [ "${ENV}" != "prod" ]; then STAGING="--staging"; fi
    
    docker compose -p mb-platform -f "./docker-compose-infra.yml" run --rm --entrypoint "\
-     certbot certonly --webroot -w /var/www/certbot \
+     certbot certonly -w /var/www/certbot \
        ${STAGING} \
        ${ADMIN_EMAIL_ARG} \
        ${DOMAIN_ARGS} \

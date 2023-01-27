@@ -15,9 +15,10 @@ services:
       - ./files/certificates/conf:/etc/letsencrypt
       - ./files/certificates/www:/var/www/certbot
       - ./sources/www/html:/usr/share/nginx/html
+    command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g \"daemon off;\"'"
 
   certbot:
-    image: certbot/certbot:${CERTBOT_VERSION}
+    image: certbot/dns-google:${CERTBOT_VERSION}
     restart: unless-stopped
     volumes:
       - ./files/certificates/conf:/etc/letsencrypt
