@@ -15,6 +15,8 @@ export MSYS_NO_PATHCONV=1
 [[ -z ${ENV} ]] && [ "${1}" != "prepare-env" ] && echo "${0}: missing or invalid env.sh; run: '${0} prepare-env { dev | test | stage | prod }'" && exit 1
 [[ -f "./env-${ENV}.sh" ]]                     && source "./env-${ENV}.sh"
 
+. "./platform-versions/v_$((PLATFORM_VERSION - 1)).sh"
+
 prepare-env() {
  if verify-env "${1}"; then
   echo "usage: '${0} prepare-env { dev | test | stage | prod }"
