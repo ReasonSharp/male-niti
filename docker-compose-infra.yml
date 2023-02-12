@@ -63,6 +63,8 @@ services:
       - ./files/docker-data/dms/config/:/tmp/docker-mailserver/
       - ./files/certificates/conf:/etc/letsencrypt
       - /etc/localtime:/etc/localtime:ro
+    networks:
+      - mb-platform
     restart: unless-stopped
     stop_grace_period: 1m
     cap_add:
