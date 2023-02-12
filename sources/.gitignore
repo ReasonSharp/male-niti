@@ -1,1 +1,2 @@
-Dockerfile.mb-app
+*.Dockerfile
+!*.sample.Dockerfile

@@ -31,7 +31,9 @@ write-configs() {
  cp "./config/blagajnadb/my.cnf" "./files/blagajnadb/mariadb/my.cnf"
  echo "${BLAGAJNADB_ROOT_PASS}" > "./config/blagajnadb/mysql-root-pass-${ENV}.txt"
  envsubst '${APP_SERVER_NAME},${WEB_SERVER_NAME}' < "./config/tlsoffloader/tlsoffloader.conf" > "./config/tlsoffloader/tlsoffloader-${ENV}.conf"
- envsubst '${NODE_VERSION}'                       < "./sources/Dockerfile.mb-app.sample"      > "./sources/Dockerfile.mb-app"
+ envsubst '${NODE_VERSION}'                       < "./sources/mb-app.sample.Dockerfile"      > "./sources/mb-app.Dockerfile"
+ envsubst '${PHP_VERSION}'                        < "./sources/php.sample.Dockerfile"         > "./sources/php.Dockerfile"
+ envsubst                                         < "./config/php/smtp.php"                   > "./config/php/smtp-${ENV}.php"
 }
 
 preserve-image() {
@@ -49,6 +51,8 @@ preserve-images() {
  preserve-image img_node node:${NODE_VERSION}
  preserve-image img_mbapp mbapp:${MBAPP_VERSION}
  preserve-image img_mariadb mariadb:${MARIADB_VERSION}
+ preserve-image img_mailserver docker.io/mailserver/docker-mailserver:${MAILSERVER_VERSION}
+ preserve-image img_php php:${PHP_VERSION}
 }
 release-images() {
  docker stop $(docker ps --format '{{.Names}}' | grep img_)
@@ -165,7 +169,6 @@ blagajnadb-recreate() {
  blagajnadb-run
 }
 blagajnadb-upgrade() {
- set -x
  if [[ -z "${1}" ]]; then UPGRADE=--full; else UPGRADE="--ver ${1}"; fi
  docker run --rm -v `pwd`/sources/blagajnadb:/blagajnadb:ro --network mb-platform_mb-platform $(docker build -f scripts/Dockerfile.dbupdater -q ./scripts) \
   dbupgrade /blagajnadb --demo ${UPGRADE} -h blagajnadb --port=3306 -u root -p"${BLAGAJNADB_ROOT_PASS}" malablagajna
@@ -174,6 +177,46 @@ blagajnadb-downgrade() {
  if [[ -z "${1}" ]]; then unset DOWNGRADE; else DOWNGRADE="--ver ${1}"; fi
  docker run --rm -v `pwd`/sources/blagajnadb:/blagajnadb:ro --network mb-platform_mb-platform $(docker build -f scripts/Dockerfile.dbupdater -q ./scripts) \
   dbdowngrade /blagajnadb ${DOWNGRADE} -h blagajnadb --port=3306 -u root -p"${BLAGAJNADB_ROOT_PASS}" malablagajna
+}
+
+mailserver() {
+ if [ "${1}" != "setup" ]; then
+  if [ "${ENV}" != "prod" ]; then
+   echo "${0}: can only execute mailserver in production environment"
+   exit 1
+  fi
+ fi
+ if fn-exists mailserver-"${1}"; then
+  CMD="${1}"
+  shift
+  mailserver-"${CMD}" ${@}
+ else
+  echo
+  echo "usage: ${0} mailserver [param]"
+  echo
+  echo "PARAMS:"
+  echo
+  echo " --------------------------------------------------------------------------------------------------"
+  echo "  up               | builds the mailserver container and runs it"
+  echo "  down             | stops the mailserver container"
+  echo "  logs [LINES]     | shows last [LINES] lines of container's logs, or all by default"
+  echo "  setup [params]   | uses the setup.sh script to set up the mailserver"
+  echo " --------------------------------------------------------------------------------------------------"
+  echo
+ fi
+}
+mailserver-up() {
+ docker compose -p mb-platform -f docker-compose-infra.yml up -d mailserver
+}
+mailserver-down() {
+ docker compose -p mb-platform -f docker-compose-infra.yml down mailserver
+}
+mailserver-logs() {
+ if [[ -z "${1}" ]]; then LINES=all; else LINES="${1}"; fi
+ docker compose -p mb-platform -f docker-compose-infra.yml logs -f -t --tail "${LINES}" mailserver
+}
+mailserver-setup() {
+ ./config/mailserver/setup.sh ${@}
 }
 
 app() {
@@ -225,6 +268,11 @@ app-recreate() {
  app-rmi
  app-build
  app-run
+}
+
+php-stop() {
+ docker compose -p mb-platform -f docker-compose-infra stop php
+ docker compose -p mb-platform -f docker-compose-infra rm -f php
 }
 
 ### PLATFORM VERSION MANIPULATION ###
@@ -281,12 +329,15 @@ downgrade-v1() {
  certbot-stop
  blagajnadb-stop
  app-stop
+ php-stop
  VOL_PARAM=
  if [ "${1}" = "--vol" ]; then
   VOL_PARAM="--volumes"
  fi
  preserve-images
- docker system prune -a "${VOL_PARAM}" -f
+ set -x
+ docker system prune -a ${VOL_PARAM} -f
+ set +x
  release-images
  if [ "${1}" = "--vol" ]; then
   rm -rf ./files
@@ -373,6 +424,7 @@ case "${1}" in
  certbot)        certbot "${2}" "${3}";;
  app)            app "${2}" "${3}";;
  blagajnadb)     blagajnadb "${2}" "${3}";;
+ mailserver)     ${@};;
  *)
   echo
   echo "usage: ${0} {command} [parameters]"
@@ -392,6 +444,7 @@ case "${1}" in
   echo "  certbot [param]        | manipulates the certbot container"
   echo "  app [param]            | manipulates the mbapp container"
   echo "  blagajnadb [param]     | manipulates the blagajnadb container"
+  echo "  mailserver [param]     | manipulates the mailserver container and configuration"
   echo " ---------------------------------------------------------------------------------------------"
   echo
 esac
