@@ -63,74 +63,6 @@ release-images() {
 
 ### CONTAINER MANIPULATION ###
 
-tlsoffloader() {
- if fn-exists tlsoffloader-"${1}"; then
-  tlsoffloader-"${1}" "${2}"
- else
-  echo
-  echo "usage: ${0} tlsoffloader [param]"
-  echo
-  echo "PARAMS:"
-  echo
-  echo " --------------------------------------------------------------------------------------------------"
-  echo "  run             | creates and runs the tlsoffloader container"
-  echo "  logs [LINES]    | shows last [LINES] lines of container's logs, or all by default"
-  echo "  stop            | stops and removes the container"
-  echo "  recreate        | stops and removes the container, then runs it anew"
-  echo " --------------------------------------------------------------------------------------------------"
-  echo
- fi
-}
-tlsoffloader-run() {
- docker compose -p mb-platform -f docker-compose-infra.yml up -d --no-recreate tlsoffloader
-}
-tlsoffloader-logs() {
- if [[ -z "${1}" ]]; then LINES=all; else LINES="${1}"; fi
- docker compose -p mb-platform -f docker-compose-infra.yml logs -f -t --tail "${LINES}" tlsoffloader
-}
-tlsoffloader-stop() {
- docker compose -p mb-platform -f docker-compose-infra.yml stop tlsoffloader
- docker compose -p mb-platform -f docker-compose-infra.yml rm -f tlsoffloader
-}
-tlsoffloader-recreate() {
- tlsoffloader-stop
- tlsoffloader-run
-}
-
-certbot() {
- if fn-exists certbot-"${1}"; then
-  certbot-"${1}" "${2}"
- else
-  echo
-  echo "usage: ${0} certbot [param]"
-  echo
-  echo "PARAMS:"
-  echo
-  echo " --------------------------------------------------------------------------------------------------"
-  echo "  run             | creates and runs the certbot container"
-  echo "  logs [LINES]    | shows last [LINES] lines of container's logs, or all by default"
-  echo "  stop            | stops and removes the container"
-  echo "  recreate        | stops and removes the container, then runs it anew"
-  echo " --------------------------------------------------------------------------------------------------"
-  echo
- fi
-}
-certbot-run() {
- docker compose -p mb-platform -f docker-compose-infra.yml up -d --no-recreate certbot
-}
-certbot-logs() {
- if [[ -z "${1}" ]]; then LINES=all; else LINES="${1}"; fi
- docker compose -p mb-platform -f docker-compose-infra.yml logs -f -t --tail "${LINES}" certbot
-}
-certbot-stop() {
- docker compose -p mb-platform -f docker-compose-infra.yml stop certbot
- docker compose -p mb-platform -f docker-compose-infra.yml rm -f certbot
-}
-certbot-recreate() {
- certbot-stop
- certbot-run
-}
-
 blagajnadb() {
  if fn-exists blagajnadb-"${1}"; then
   blagajnadb-"${1}" "${2}"
@@ -141,10 +73,6 @@ blagajnadb() {
   echo "PARAMS:"
   echo
   echo " --------------------------------------------------------------------------------------------------"
-  echo "  run             | creates and runs the container for the database"
-  echo "  logs [LINES]    | shows last [LINES] lines of container's logs, all by default"
-  echo "  stop            | stops and removes the container"
-  echo "  recreate        | stops and removes the container, then runs it anew (no init, volume preserved)"
   echo "  upgrade [VER]   | runs the new upgrade scripts to upgrade the database to [VER] (max by default)"
   echo "  downgrade [VER] | runs the downgrade script to downgrade the database to [VER] (default: cur-1)"
   echo "  login           | logs into the database on the cli"
@@ -156,69 +84,57 @@ blagajnadb-login() {
  DB_NAME=`docker ps --format "{{.Names}}" | grep blagajnadb`
  docker exec -it ${DB_NAME} mysql -u root -p"${DB_ROOT_PASS}" malablagajna
 }
-blagajnadb-run() {
- docker compose -p mb-platform -f docker-compose-infra.yml up -d --no-recreate blagajnadb
-}
-blagajnadb-logs() {
- if [[ -z "${1}" ]]; then LINES=all; else LINES="${1}"; fi
- docker compose -p mb-platform -f docker-compose-infra.yml logs -f -t --tail "${LINES}" blagajnadb
-}
-blagajnadb-stop() {
- docker compose -p mb-platform -f docker-compose-infra.yml stop blagajnadb
-}
-blagajnadb-recreate() {
- blagajnadb-stop
- blagajnadb-run
-}
 blagajnadb-upgrade() {
  if [[ -z "${1}" ]]; then UPGRADE=--full; else UPGRADE="--ver ${1}"; fi
- docker run --rm -v `pwd`/sources/blagajnadb:/blagajnadb:ro --network mb-platform_mb-platform $(docker build -f scripts/Dockerfile.dbupdater -q ./scripts) \
+ docker run --rm -v `pwd`/sources/blagajnadb:/blagajnadb:ro --network mb-platform_mb-platform $(docker build -f scripts/dbupdater.Dockerfile -q ./scripts) \
   dbupgrade /blagajnadb --demo ${UPGRADE} -h blagajnadb --port=3306 -u root -p"${BLAGAJNADB_ROOT_PASS}" malablagajna
 }
 blagajnadb-downgrade() {
  if [[ -z "${1}" ]]; then unset DOWNGRADE; else DOWNGRADE="--ver ${1}"; fi
- docker run --rm -v `pwd`/sources/blagajnadb:/blagajnadb:ro --network mb-platform_mb-platform $(docker build -f scripts/Dockerfile.dbupdater -q ./scripts) \
+ docker run --rm -v `pwd`/sources/blagajnadb:/blagajnadb:ro --network mb-platform_mb-platform $(docker build -f scripts/dbupdater.Dockerfile -q ./scripts) \
   dbdowngrade /blagajnadb ${DOWNGRADE} -h blagajnadb --port=3306 -u root -p"${BLAGAJNADB_ROOT_PASS}" malablagajna
 }
 
 mailserver() {
- if [ "${1}" != "setup" ]; then
-  if [ "${ENV}" != "prod" ]; then
-   echo "${0}: can only execute mailserver in production environment"
-   exit 1
-  fi
+ if [ "${ENV}" != "prod" ]; then
+  echo "${0}: can only execute mailserver in production environment"
+  exit 1
  fi
- if fn-exists mailserver-"${1}"; then
-  CMD="${1}"
-  shift
-  mailserver-"${CMD}" ${@}
+ ./config/mailserver/setup.sh ${@}
+}
+
+infra() {
+ if fn-exists infra-"${1}"; then
+  infra-"${1}" "${2}"
  else
   echo
-  echo "usage: ${0} mailserver [param]"
+  echo "usage: ${0} infra [param]"
   echo
   echo "PARAMS:"
   echo
   echo " --------------------------------------------------------------------------------------------------"
-  echo "  up               | builds the mailserver container and runs it"
-  echo "  down             | stops the mailserver container"
-  echo "  logs [LINES]     | shows last [LINES] lines of container's logs, or all by default"
-  echo "  setup [params]   | uses the setup.sh script to set up the mailserver"
+  echo "  run                      | creates and runs infrastructure containers"
+  echo "  logs [LINES] [CONTAINER] | shows last [LINES] lines of [CONTAINER]'s logs, or all by default"
+  echo "  stop                     | stops and removes infrastructure containers"
+  echo "  recreate                 | stops and removes infrastructure containers, then runs them anew"
   echo " --------------------------------------------------------------------------------------------------"
   echo
  fi
 }
-mailserver-up() {
- docker compose -p mb-platform -f docker-compose-infra.yml up -d mailserver
+infra-run() {
+ docker compose -p mb-platform -f docker-compose-infra.yml up -d
 }
-mailserver-down() {
- docker compose -p mb-platform -f docker-compose-infra.yml down mailserver
-}
-mailserver-logs() {
+infra-logs() {
  if [[ -z "${1}" ]]; then LINES=all; else LINES="${1}"; fi
- docker compose -p mb-platform -f docker-compose-infra.yml logs -f -t --tail "${LINES}" mailserver
+ if [[ ! -z "${2}" ]]; then CONTAINER="${2}"; fi
+ docker compose -p mb-platform -f docker-compose-infra.yml logs -f -t --tail "${LINES}" ${CONTAINER}
 }
-mailserver-setup() {
- ./config/mailserver/setup.sh ${@}
+infra-stop() {
+ docker compose -p mb-platform -f docker-compose-infra.yml down
+}
+infra-recreate() {
+ infra-stop
+ infra-run
 }
 
 app() {
@@ -244,7 +160,7 @@ app() {
 }
 app-build() {
  cd sources/
- docker build -f Dockerfile.mb-app -t mbapp:latest --build-arg ENV=${ENV} .
+ docker build -f mb-app.Dockerfile -t mbapp:latest --build-arg ENV=${ENV} .
  cd ..
 }
 app-run() {
@@ -272,11 +188,6 @@ app-recreate() {
  app-run
 }
 
-php-stop() {
- docker compose -p mb-platform -f docker-compose-infra stop php
- docker compose -p mb-platform -f docker-compose-infra rm -f php
-}
-
 ### PLATFORM VERSION MANIPULATION ###
 
 upgrade-v0() {
@@ -301,11 +212,7 @@ upgrade-v0() {
  . "./scripts/letsencrypt/letsencrypt-init.sh"
  write-configs
  letsencrypt-init
- tlsoffloader-run
- if [ "${ENV}" = "prod" ]; then
-  certbot-run
- fi
- blagajnadb-recreate
+ infra-run
  blagajnadb-upgrade "001"
  app-recreate
 
@@ -327,11 +234,8 @@ upgrade-v0() {
 }
 downgrade-v1() {
  echo "${0}: downgrading v1 -> v0"
- tlsoffloader-stop
- certbot-stop
- blagajnadb-stop
+ infra-stop
  app-stop
- php-stop
  VOL_PARAM=
  if [ "${1}" = "--vol" ]; then
   VOL_PARAM="--volumes"
@@ -415,18 +319,20 @@ reset() {
  fi
 }
 
-case "${1}" in
- prepare-env)    prepare-env "${2}";;
+CMD=${1}
+shift
+
+case "${CMD}" in
+ prepare-env)    prepare-env ${@};;
  write-configs)  write-configs;;
  upgrade)        upgrade;;
- downgrade)      downgrade "${2}";;
+ downgrade)      downgrade ${@};;
  reupgrade)      reupgrade;;
- reset)          reset "${2}" "${3}";;
- tlsoffloader)   tlsoffloader "${2}" "${3}";;
- certbot)        certbot "${2}" "${3}";;
- app)            app "${2}" "${3}";;
- blagajnadb)     blagajnadb "${2}" "${3}";;
+ reset)          reset ${@};;
+ app)            app ${@};;
+ blagajnadb)     blagajnadb ${@};;
  mailserver)     ${@};;
+ infra)          infra ${@};;
  *)
   echo
   echo "usage: ${0} {command} [parameters]"
@@ -442,11 +348,11 @@ case "${1}" in
   echo "  reupgrade              | best effort to downgrade platform version, then upgrade again"
   echo "  reset [--full] [--vol] | resets the environment - development or test only!"
   echo " ---------------------------------------------------------------------------------------------"
-  echo "  tlsoffloader [param]   | manipulates the tlsoffloader container"
-  echo "  certbot [param]        | manipulates the certbot container"
+  echo "  infra [param]          | manipulates the infrastructure containers"
+  echo " ---------------------------------------------------------------------------------------------"
+  echo "  mailserver [param]     | used for setting up the mailserver"
+  echo "  blagajnadb [param]     | used for upgrading or downgrading blagajnadb"
   echo "  app [param]            | manipulates the mbapp container"
-  echo "  blagajnadb [param]     | manipulates the blagajnadb container"
-  echo "  mailserver [param]     | manipulates the mailserver container and configuration"
   echo " ---------------------------------------------------------------------------------------------"
   echo
 esac

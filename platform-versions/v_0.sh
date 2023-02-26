@@ -19,7 +19,7 @@ export MBAPP_FOLDER="./sources/mb-app"
 export MBAPP_BRANCH=main
 
 # WWW
-export WWW_COMMIT=0cedc07
+export WWW_COMMIT=226117e
 export WWW_FOLDER="./sources/www"
 export WWW_BRANCH=main
 
