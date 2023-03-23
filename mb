@@ -331,7 +331,7 @@ case "${CMD}" in
  reset)          reset ${@};;
  app)            app ${@};;
  blagajnadb)     blagajnadb ${@};;
- mailserver)     ${@};;
+ mailserver)     mailserver ${@};;
  infra)          infra ${@};;
  *)
   echo
