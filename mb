@@ -49,10 +49,11 @@ write-configs() {
  mkdir -p "./files/blagajnadb/data"
  cp "./config/blagajnadb/my.cnf" "./files/blagajnadb/mariadb/my.cnf"
  echo "${BLAGAJNADB_ROOT_PASS}" > "./config/blagajnadb/mysql-root-pass-${ENV}.txt"
- envsubst '${APP_SERVER_NAME},${WEB_SERVER_NAME}' < "./config/tlsoffloader/tlsoffloader.conf" > "./config/tlsoffloader/tlsoffloader-${ENV}.conf"
- envsubst '${NODE_VERSION}'                       < "./sources/mb-app.sample.Dockerfile"      > "./sources/mb-app.Dockerfile"
- envsubst '${PHP_VERSION}'                        < "./sources/php.sample.Dockerfile"         > "./sources/php.Dockerfile"
- envsubst                                         < "./config/php/smtp.php"                   > "./config/php/smtp-${ENV}.php"
+ envsubst '${APP_SERVER_NAME},${WEB_SERVER_NAME}'  < "./config/tlsoffloader/tlsoffloader.conf" > "./config/tlsoffloader/tlsoffloader-${ENV}.conf"
+ envsubst '${NODE_VERSION}'                        < "./sources/mb-app.sample.Dockerfile"      > "./sources/mb-app.Dockerfile"
+ envsubst '${PHP_VERSION}'                         < "./sources/php.sample.Dockerfile"         > "./sources/php.Dockerfile"
+ envsubst '${DOTNETSDK_VERSION},${ASPNET_VERSION}' < "./sources/quotable.sample.Dockerfile"    > "./sources/quotable.Dockerfile"
+ envsubst                                          < "./config/php/smtp.php"                   > "./config/php/smtp-${ENV}.php"
 }
 
 preserve-image() {
@@ -72,6 +73,8 @@ preserve-images() {
  preserve-image img_mariadb mariadb:${MARIADB_VERSION}
  preserve-image img_mailserver docker.io/mailserver/docker-mailserver:${MAILSERVER_VERSION}
  preserve-image img_php php:${PHP_VERSION}
+ preserve-image img_dotnet mcr.microsoft.com/dotnet/sdk:${DOTNETSDK_VERSION}
+ preserve-image img_aspnet mcr.microsoft.com/dotnet/aspnet:${ASPNET_VERSION}
 }
 release-images() {
  docker stop $(docker ps --format '{{.Names}}' | grep img_)
