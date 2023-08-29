@@ -6,6 +6,23 @@ verify-env() {
 fn-exists() {
  declare -F "${1}" > /dev/null
 }
+rm-container() {
+ if [ $# -ne 0 ]; then
+  CONTAINER="${1}"
+  if docker ps -a --format '{{.Names}}' | grep -q "${CONTAINER}"; then
+   docker rm ${CONTAINER}
+  fi
+ fi
+}
+rm-image() {
+ if [ $# -ne 0 ]; then 
+  IMAGE="${1}"
+  IMAGE_EXISTS=$(docker images -q "${IMAGE}" 2>/dev/null)
+  if [ -n "${IMAGE_EXISTS}" ]; then
+   docker rmi ${IMAGE}
+  fi
+ fi
+}
 
 unset ENV
 export MSYS_NO_PATHCONV=1
@@ -175,10 +192,10 @@ app-stop() {
  docker compose -p mb-platform -f docker-compose-apps.yml rm -f mbapp
 }
 app-rm() {
- docker rm $(docker ps -a | grep mbapp | awk '{print $1}')
+ rm-container mbapp
 }
 app-rmi() {
- docker rmi $(docker images | grep mbapp | awk '{print $3}')
+ rm-image mbapp
 }
 app-recreate() {
  app-stop
@@ -188,8 +205,59 @@ app-recreate() {
  app-run
 }
 
+quotable() {
+ if fn-exists quotable-"${1}"; then
+  quotable-"${@}"
+ else
+  echo
+  echo "usage: ${0} quotable [param]"
+  echo
+  echo "PARAMS:"
+  echo
+  echo " --------------------------------------------------------------------------------------------------"
+  echo "  build           | builds quotable image"
+  echo "  run <q> <a>     | runs quotable from image with parameters q (quote) and a (author)"
+  echo "  rm              | removes the quotable container"
+  echo "  rmi             | removes the quotable image"
+  echo "  recreate        | removes the quotable container and image, then builds the new image"
+  echo " --------------------------------------------------------------------------------------------------"
+  echo
+ fi
+}
+quotable-build() {
+ cd sources/
+ docker build -f quotable.Dockerfile -t quotable:latest .
+ cd ..
+}
+quotable-run() {
+ IMAGE_EXISTS=$(docker images -q quotable 2>/dev/null)
+ if [ -n "${IMAGE_EXISTS}" ]; then
+  QUOTE="${1}"
+  AUTHOR="${2}"
+  docker run --rm -v "`pwd`/files/images":"/app/out" quotable "${QUOTE}" "${AUTHOR}"
+ else
+  echo "Image 'quotable' does not exist. Please buld the image using: ${0} build"
+ fi
+}
+quotable-rm() {
+ rm-container quotable
+}
+quotable-rmi() {
+ rm-image quotable
+}
+quotable-recreate() {
+ quotable-rm
+ quotable-rmi
+ quotable-build
+}
+
 ### PLATFORM VERSION MANIPULATION ###
 
+upgrade-v1() {
+ echo "${0}: upgrading v1 -> v2"
+ quotable-recreate
+ printf "%s\n" "#!/bin/bash" "" "export PLATFORM_VERSION=2" > "./platform_version.sh"
+}
 upgrade-v0() {
  echo "${0}: upgrading v0 -> v1"
  export DOMAINS=(${ALL_DOMAINS})
@@ -230,6 +298,13 @@ upgrade-v0() {
  git checkout "${BLAGAJNADB_BRANCH}"
  cd "${CDIR}"
 
+ printf "%s\n" "#!/bin/bash" "" "export PLATFORM_VERSION=1" > "./platform_version.sh"
+}
+
+downgrade-v2() {
+ echo "${0}: downgrading v2 -> v1"
+ quotable-rm
+ quotable-rmi
  printf "%s\n" "#!/bin/bash" "" "export PLATFORM_VERSION=1" > "./platform_version.sh"
 }
 downgrade-v1() {
@@ -333,6 +408,7 @@ case "${CMD}" in
  blagajnadb)     blagajnadb ${@};;
  mailserver)     mailserver ${@};;
  infra)          infra ${@};;
+ quotable)       quotable "${@}";;
  *)
   echo
   echo "usage: ${0} {command} [parameters]"
@@ -353,6 +429,7 @@ case "${CMD}" in
   echo "  mailserver [param]     | used for setting up the mailserver"
   echo "  blagajnadb [param]     | used for upgrading or downgrading blagajnadb"
   echo "  app [param]            | manipulates the mbapp container"
+  echo "  quotable [param]       | manipulates the quotable container"
   echo " ---------------------------------------------------------------------------------------------"
   echo
 esac
