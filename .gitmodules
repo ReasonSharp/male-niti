@@ -4,9 +4,6 @@
 [submodule "sources/mb-app"]
 	path = sources/mb-app
 	url = git@github.com:ReasonSharp/malablagajna-web.git
-[submodule "sources/www"]
-	path = sources/www
-	url = git@github.com:ReasonSharp/male-niti-web.git
 [submodule "sources/blagajnadb"]
 	path = sources/blagajnadb
 	url = git@github.com:ReasonSharp/malablagajna.db.git
