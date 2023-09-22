@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="hr">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>
+   Male Niti - Cjenik
+  </title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+ </head>
+ <body class="maleniti" style="background-image: url(assets/cover.jpg);">
+  <div id="top"></div>
+  <main>
+   <div class="position-relative overflow-hidden p-3 p-md-5 text-center">
+    <div class="col-6 p-lg-5 mx-auto my-5">
+     <a routerLink="/index"><h1 class="display-4 fw-bold site-title">Male Niti</h1>
+     <p class="lead fw-normal site-description">obrt za usluge programiranja, vl. Nikola Novak</p></a>
+    </div>
+    <div class="product-device shadow-sm d-none d-md-block"></div>
+    <div class="product-device product-device-2 shadow-sm d-none d-md-block"></div>
+   </div>
+   <div class="container-fluid px-3">
+    <div class="pricing-header p-3 pb-md-4 mx-auto text-center">
+     <h1 class="display-4 fw-normal">Cjenik - Mali Backup</h1>
+     <p class="fs-5 text-light"></p>
+    </div>
+    <div class="row row-cols-1 row-cols-md-3 mb-3 text-center">
+     <div class="col">
+      <div class="card mb-4 rounded-3 shadow-sm">
+       <div class="card-header py-3">
+        <h4 class="my-0 fw-normal">Mali Backup</h4>
+       </div>
+       <div class="card-body">
+        <h1 class="card-title pricing-card-title">50€<small class="text-muted fw-light"> jednokratno</small></h1>
+        <ul class="list-unstyled mt-3 mb-4">
+         <li>Backup datoteka</li>
+         <li>1 instalacija backup aplikacije</li>
+         <li>1 dnevni backup na kratkotrajnu arhivu</li>
+         <li>1 tjedni backup na dugotrajnu arhivu</li>
+         <li>7 dana zadržavanja dnevnih backupa</li>
+         <li>Proizvoljno dugo zadržavanje tjednih backupa</li>
+         <li>Proizvoljna veličina backupa</li>
+        </ul>
+        <button type="button" class="w-100 btn btn-lg btn-outline-primary" (click)="goToContactForm('MaliBackup1', 'Mali Backup')">Naruči</button>
+       </div>
+      </div>
+     </div>
+     <div class="col">
+      <div class="card mb-4 rounded-3 shadow-sm">
+       <div class="card-header py-3">
+        <h4 class="my-0 fw-normal">Mali Backup + usluga održavanja</h4>
+       </div>
+       <div class="card-body">
+        <h1 class="card-title pricing-card-title">10€<small class="text-muted fw-light">/mj</small></h1>
+         <ul class="list-unstyled mt-3 mb-4">
+         <li>Backup datoteka</li>
+         <li>1 instalacija backup aplikacije</li>
+         <li>1 dnevni backup na kratkotrajnu arhivu</li>
+         <li>1 tjedni backup na dugotrajnu arhivu</li>
+         <li>7 dana zadržavanja dnevnih backupa</li>
+         <li>24 mjeseca zadržavanja tjednih backupa</li>
+         <li>100 MB maksimalna veličina komprimirane dnevne arhive</li>
+         <li>3 vraćanja backupa iz kratkotrajne arhive (max. 10/god)</li>
+         <li>1 vraćanje backupa iz dugotrajne arhive (max. 2/god)</li>
+         <li>Cloud usluga uključena u cijenu</li>
+         <li>Kontinuirano vođenje računa o ispravnom radu backupa</li>
+        </ul>
+        <button type="button" class="w-100 btn btn-lg btn-primary" (click)="goToContactForm('MaliBackup2', 'Mali Backup i usluga održavanja')">Naruči</button>
+       </div>
+      </div>
+     </div>
+     <div class="col">
+      <div class="card mb-4 rounded-3 shadow-sm border-primary">
+       <div class="card-header py-3 text-bg-primary border-primary">
+        <h4 class="my-0 fw-normal">Mali Backup baze podataka + usluga održavanja</h4>
+       </div>
+       <div class="card-body">
+        <h1 class="card-title pricing-card-title">Cijena ovisi <small class="text-muted fw-light">o traženim parametrima</small></h1>
+        <ul class="list-unstyled mt-3 mb-4">
+         <li>Backup baze podataka</li>
+         <li>Backup datoteka</li>
+         <li>Proizvoljan broj instalacija</li>
+         <li>1 dnevni backup na kratkotrajnu arhivu</li>
+         <li>1 tjedni backup na dugotrajnu arhivu</li>
+         <li>7 dana zadržavanja dnevnih backupa</li>
+         <li>Proizvoljna duljina zadržavanja tjednih backupa</li>
+         <li>Proizvoljna veličina dnevne arhive</li>
+         <li>3 vraćanja backupa iz kratkotrajne arhive (max. 10/god) po instalaciji</li>
+         <li>1 vraćanje backupa iz dugotrajne arhive (max. 2/god) po instalaciji</li>
+         <li>Cloud usluga uključena u cijenu</li>
+         <li>Kontinuirano vođenje računa o ispravnom radu backupa</li>
+        </ul>
+        <button type="button" class="w-100 btn btn-lg btn-primary" (click)="goToContactForm('MaliBackup3', 'Mali Backup baze podataka i usluga održavanja')">Kontaktirajte nas</button>
+       </div>
+      </div>
+     </div>
+    </div>
+   </div>
+   <!-- <div class="pricing-header p-3 pb-md-4 mx-auto text-center">
+    <h1 class="display-4 fw-normal">Cjenik - Mala Blagajna</h1>
+    <p class="fs-5 text-light"></p>
+   </div>
+   <div class="row row-cols-1 row-cols-md-3 mb-3 text-center">
+    <div class="col">
+    </div>
+    <div class="col">
+     <div class="card mb-4 rounded-3 shadow-sm">
+      <div class="card-header py-3">
+       <h4 class="my-0 fw-normal">Dolazi uskoro</h4>
+      </div>
+      <div class="card-body">
+       <h1 class="card-title pricing-card-title">?€<small class="text-muted fw-light">/mj</small></h1>
+        <ul class="list-unstyled mt-3 mb-4">
+        <li>Sve Vaše mikropoduzetničke potrebe na jednom mjestu</li>
+       </ul>
+       <button type="button" class="w-100 btn btn-lg btn-primary">Naruči</button>
+      </div>
+     </div>
+    </div>
+    <div class="col">
+    </div>
+   </div> -->
+  </main>
+  <div class="container">
+   <footer class="py-3 my-4">
+    <ul class="nav justify-content-center border-bottom pb-3 mb-3">
+     <li class="nav-item"><a routerLink="/index" class="nav-link px-2 text-mn">Naslovna</a></li>
+     <li class="nav-item"><a href="javascript:void(0);" (click)="scrollToTop()" class="nav-link px-2 text-mn">Cjenik</a></li>
+     <li class="nav-item"><a routerLink="/pitanja" class="nav-link px-2 text-mn">Pitanja</a></li>
+     <li class="nav-item"><a routerLink="/kontakt" class="nav-link px-2 text-mn">Kontakt</a></li>
+    </ul>
+    <p class="text-center text-muted">&copy; 2023 Male Niti</p>
+   </footer>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js" integrity="sha384-w76AqPfDkMBDXo30jS1Sgez6pr3x5MlQ1ZAGC+nuZB+EYdgRZgiwxhTBTkF7CXvN" crossorigin="anonymous"></script>
+ </body>
+</html>

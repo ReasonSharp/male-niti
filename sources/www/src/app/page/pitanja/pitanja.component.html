@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="hr">
+ <head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>
+   Male Niti - Pitanja
+  </title>
+  <link rel="icon" type="image/x-icon" href="favicon.ico">
+ </head>
+ <body class="maleniti" style="background-image: url(assets/cover.jpg);">
+  <div id="top"></div>
+  <main>
+   <div class="position-relative overflow-hidden p-3 p-md-5 text-center">
+    <div class="col-6 p-lg-5 mx-auto my-5">
+     <a routerLink="/index"><h1 class="display-4 fw-bold site-title">Male Niti</h1>
+     <p class="lead fw-normal site-description">obrt za usluge programiranja, vl. Nikola Novak</p></a>
+    </div>
+    <div class="product-device shadow-sm d-none d-md-block"></div>
+    <div class="product-device product-device-2 shadow-sm d-none d-md-block"></div>
+   </div>
+   <section class="px-3">
+    <h3 class="text-center mb-4 pb-2 text-primary fw-bold">Pitanja</h3>
+    <p class="text-center mb-5">Pronađite odgovor na Vaše pitanje ispod</p>
+    <div class="row">
+     <div class="col-md-6 col-lg-4 mb-4">
+      <div class="mx-1 px-3 py-4 border rounded maleniti hover-opacity">
+       <h6 class="mb-3 text-primary"><i class="far fa-paper-plane text-primary pe-2"></i>Plaćam svoju cloud uslugu. Mogu li koristiti Mali Backup?</h6>
+       <p><strong><u>Da, uz određena ograničenja.</u></strong> Mali Backup će raditi s Vašim postojećim Google Cloud računom. Alternativno, može se konfigurirati rad s Google Drive, OneDrive, Dropbox, i sličnim servisima koji imaju izvedenu vlastitu sinkronizaciju s cloudom.</p>
+       <p>Na žalost, u ovoj varijanti Male Niti neće biti u mogućnosti održavati Vaš backup i vraćati podatke iz arhive, već će te radnje morati obavljati Vaši IT stručnjaci.</p>
+      </div>
+     </div>
+     <div class="col-md-6 col-lg-4 mb-4">
+      <div class="mx-1 px-3 py-4 border rounded maleniti hover-opacity">
+       <h6 class="mb-3 text-primary"><i class="far fa-paper-plane text-primary pe-2"></i>Ne želim backup na cloud. Mogu li raditi backup na neki drugi način?</h6>
+       <p><strong><u>Moguće je, ali ne s aplikacijom Mali Backup.</u></strong> Mali Backup je izrađen da radi isključivo backup na cloud. Za izradu softvera po narudžbi, kontaktirajte nas.</p>
+      </div>
+     </div>
+     <div class="col-md-6 col-lg-4 mb-4">
+      <div class="mx-1 px-3 py-4 border rounded maleniti hover-opacity">
+       <h6 class="mb-3 text-primary"><i class="far fa-paper-plane text-primary pe-2"></i>Zašto se Mali Backup naplaćuje mjesečno?</h6>
+       <p><strong><u>Sama aplikacija ne naplaćuje se mjesečno.</u></strong> Moguće je instalirati aplikaciju na računalo i koristiti uz postojeću cloud uslugu uz jednokratno plaćanje same aplikacije. Mjesečni planovi naplate korisni su isključivo kod korisnika koji nemaju zakupljenu svoju cloud uslugu i ne namjeravaju je imati. Odgovornost za sigurnost Vaših podataka i ispravan rad backupa tada preuzima obrt Male Niti te Vam za mali mjesečni iznos nudimo uslugu bez dodatnih briga oko clouda, stojimo Vam na raspolaganju za sve Vaše upite glede Vaših podataka, uključujući vraćanje podataka iz arhive u slučaju kvara računala.</p>
+      </div>
+     </div>
+     <div class="col-md-6 col-lg-4 mb-4">
+      <div class="mx-1 px-3 py-4 border rounded maleniti hover-opacity">
+       <h6 class="mb-3 text-primary"><i class="far fa-paper-plane text-primary pe-2"></i>Kako osiguravate konzistentnost baze podataka prilikom backupa?</h6>
+       <p><strong><u>Konzistentnost se osigurava tako da se nikada ne radi backup baze u produkcijskoj okolini.</u></strong> Umjesto toga izrađuje se replika baze podataka uz jednokratno i kratkotrajno zaustavljanje produkcijske baze. Backup se radi na replici baze podataka koja se može zaustaviti u proizvoljnom trenutku dok se ne napravi backup, te se zatim ponovo pokreće. Na taj način oslanjamo se na već postojeće mehanizme konzistentnosti baze podataka unutar samog DBMSa te je iz podataka koji se vrate iz backupa moguće dalje nastaviti normalan rad s bazom.</p>
+      </div>
+     </div>
+     <div class="col-md-6 col-lg-4 mb-4">
+      <div class="mx-1 px-3 py-4 border rounded maleniti hover-opacity">
+       <h6 class="mb-3 text-primary"><i class="far fa-paper-plane text-primary pe-2"></i>Kako mogu platiti račun?</h6>
+       <p>Račun možete platiti uplatom na naš žiro račun. Žiro račun otvoren je u ZABA, a podaci za uplatu dostupni su na našoj stranici 'Kontakt'.</p>
+      </div>
+     </div>
+    </div>
+   </section>
+  </main>
+  <div class="container">
+   <footer class="py-3 my-4">
+    <ul class="nav justify-content-center border-bottom pb-3 mb-3">
+     <li class="nav-item"><a routerLink="/index" class="nav-link px-2 text-mn">Naslovna</a></li>
+     <li class="nav-item"><a routerLink="/cjenik" class="nav-link px-2 text-mn">Cjenik</a></li>
+     <li class="nav-item"><a href="javascript:void(0);" (click)="scrollToTop()" class="nav-link px-2 text-mn">Pitanja</a></li>
+     <li class="nav-item"><a routerLink="/kontakt" class="nav-link px-2 text-mn">Kontakt</a></li>
+    </ul>
+    <p class="text-center text-muted">&copy; 2023 Male Niti</p>
+   </footer>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js" integrity="sha384-w76AqPfDkMBDXo30jS1Sgez6pr3x5MlQ1ZAGC+nuZB+EYdgRZgiwxhTBTkF7CXvN" crossorigin="anonymous"></script>
+ </body>
+</html>

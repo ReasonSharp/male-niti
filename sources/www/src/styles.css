@@ -1,0 +1,73 @@
+/* You can add global styles to this file, and also import other style files */
+@charset "UTF-8";
+
+.maleniti { background-color: #FFF }
+
+.site-title {
+ color: #3433B0;
+ text-transform: uppercase;
+ text-shadow: 5px 5px #BBB;
+ /* font-size: ; */
+}
+
+.site-description {
+ color: #3433B0;
+ text-shadow: 1px 1px #555;
+}
+
+.text-mn, .text-mn:hover {
+ color: #3433B0;
+}
+
+.contact-background {
+ opacity: 80%;
+}
+
+.hover-opacity {
+ transition: opacity .5s ease;
+ opacity: 70%;
+}
+.hover-grayscale {
+ filter: grayscale(1);
+ transition: all .5s ease;
+}
+.hover-opacity:hover {
+ opacity: 100%;
+}
+.hover-grayscale:hover {
+ filter: grayscale(0);
+}
+.background {
+ height: 300px;
+ width: 80%;
+ border-radius: 21px 21px 0 0; 
+ background-repeat: no-repeat;
+ background-size: 100%;
+ background-position: top center;
+}
+
+a {
+ text-decoration: none;
+}
+
+.outline-white {
+ text-shadow: 1px 1px #ffffff80, 1px -1px #ffffff80, -1px 1px #ffffff80, -1px -1px #ffffff80, 1px 0px #ffffff80, 0px 1px #ffffff80, -1px 0px #ffffff80, 0px -1px #ffffff80;
+}
+
+#zoomed-child {
+ transition-property: background-size;
+ transition-duration: .5s;
+ transition-timing-function: ease;
+}
+#parent:hover > #zoomed-child {
+ background-size: 120%;
+}
+
+@media (pointer: coarse) {
+ .hover-opacity {
+  opacity: 100%;
+ }
+ .hover-grayscale {
+  filter: none;
+ }
+}
