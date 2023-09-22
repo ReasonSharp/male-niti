@@ -1,0 +1,134 @@
+version: "3.8"
+
+services:
+  tlsoffloader:
+    image: nginx:${NGINX_VERSION}
+    ports:
+      - "80:80"
+      - "443:443"
+    networks:
+      - mb-platform
+    depends_on:
+      - php
+    restart: unless-stopped
+    secrets:
+      - source: tlsoffloaderconf
+        target: /etc/nginx/nginx.conf
+    volumes:
+      - ./files/certificates/conf:/etc/letsencrypt
+      - ./files/certificates/www:/var/www/certbot
+      - ./sources/www/html:/usr/share/nginx/html
+    command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g \"daemon off;\"'"
+
+  certbot:
+    image: certbot/dns-google:${CERTBOT_VERSION}
+    restart: unless-stopped
+    volumes:
+      - ./files/certificates/conf:/etc/letsencrypt
+      - ./files/certificates/www:/var/www/certbot
+    secrets:
+      - source: certbotcredential
+        target: /cred.json
+    entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
+
+  php:
+    build:
+      context: ./sources
+      dockerfile: php.Dockerfile
+    restart: unless-stopped
+    networks:
+      - mb-platform
+    volumes:
+      - ./sources/www/html:/var/www/html
+    secrets:
+      - source: smtpcredential
+        target: /smtp-cli/smtp.php
+
+  mailserver:
+    image: docker.io/mailserver/docker-mailserver:${MAILSERVER_VERSION}
+    container_name: mailserver
+    hostname: ${HOSTNAME}
+    domainname: ${WEB_SERVER_NAME}
+    env_file: ./config/mailserver/mailserver.env
+    ports:
+      - "25:25"
+      - "143:143"
+      - "465:465"
+      - "587:587"
+      - "993:993"
+    networks:
+      - mb-platform
+    volumes:
+      - ./files/docker-data/dms/mail-data/:/var/mail/
+      - ./files/docker-data/dms/mail-state/:/var/mail-state/
+      - ./files/docker-data/dms/mail-logs/:/var/log/mail/
+      - ./files/docker-data/dms/config/:/tmp/docker-mailserver/
+      - ./files/certificates/conf:/etc/letsencrypt
+      - /etc/localtime:/etc/localtime:ro
+    restart: unless-stopped
+    stop_grace_period: 1m
+    cap_add:
+      - NET_ADMIN
+    healthcheck:
+      test: "ss --listening --tcp | grep -P 'LISTEN.+:smtp' || exit 1"
+      timeout: 3s
+      retries: 0
+
+  blagajnadb:
+    image: mariadb:${MARIADB_VERSION}
+    restart: unless-stopped
+    command: ['mysqld', '--defaults-file=/etc/my.cnf', '--character-set-server=utf8mb4', '--collation-server=utf8mb4_unicode_ci', '--innodb-flush-log-at-trx-commit=0', '--max-sp-recursion-depth=1']
+    ports:
+      - "3306:3306"
+    networks:
+      - mb-platform
+    volumes:
+      - ./files/blagajnadb/mariadb/my.cnf:/etc/my.cnf:ro
+      - ./files/blagajnadb/data:/var/lib/mysql:rw
+    environment:
+      MARIADB_ROOT_PASSWORD_FILE: /run/secrets/rootpass
+      LANG: C.UTF-8
+    secrets:
+      - source: rootpass
+    cap_add:
+      - SYS_NICE
+
+  userdb:
+    image: postgres:${POSTGRES_VERSION}
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgrepass
+    networks:
+      - mb-platform
+    volumes:
+      - ./files/userdb/data:/var/lib/postgresql/data:rw
+      - ./sources/userdb/up:/docker-entrypoint-initdb.d
+    secrets:
+      - source: postgrepass
+    ports:
+      - "5432:5432"
+
+  mnapi:
+    image: mnapi:latest
+    restart: unless-stopped
+    ports:
+      - "50000:50000"
+    networks:
+      - mb-platform   
+    volumes:
+      - ./files/mn-api/out:/public/out:rw
+
+networks:
+  mb-platform:
+
+secrets:
+  tlsoffloaderconf:
+    file: "./config/tlsoffloader/tlsoffloader-${ENV}.conf"
+  rootpass:
+    file: "./config/blagajnadb/mysql-root-pass-${ENV}.txt"
+  certbotcredential:
+    file: "./config/certbot/${DNS_CREDENTIALS}.json"
+  smtpcredential:
+    file: "./config/php/smtp-${ENV}.php"
+  postgrepass:
+    file: "./config/userdb/postgre-pass-${ENV}.txt"

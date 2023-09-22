@@ -1,16 +1,12 @@
 #!/bin/bash
 
-export QUOTABLE_VERSION=latest
-export DOTNETSDK_VERSION=7.0.400
-export ASPNET_VERSION=7.0.10
 export NGINX_VERSION=1.23.3
 export CERTBOT_VERSION=latest
+export NODE_VERSION=18.13.0-alpine3.16
 export MBAPP_VERSION=latest
 export MARIADB_VERSION=10.9.3
 export MAILSERVER_VERSION=11.3.1
 export PHP_VERSION=8.2.2-fpm-alpine3.17
-export NODE_VERSION=20.7.0-alpine3.17
-export POSTGRES_VERSION=16.0-bookworm
 
 # DBUpdater
 export DBUPDATER_COMMIT="1278320"
@@ -38,30 +34,16 @@ verify-env() {
 fn-exists() {
  declare -F "${1}" > /dev/null
 }
-rm-container() {
- if [ $# -ne 0 ]; then
-  CONTAINER="${1}"
-  if docker ps -a --format '{{.Names}}' | grep -q "${CONTAINER}"; then
-   docker rm ${CONTAINER}
-  fi
- fi
-}
-rm-image() {
- if [ $# -ne 0 ]; then 
-  IMAGE="${1}"
-  IMAGE_EXISTS=$(docker images -q "${IMAGE}" 2>/dev/null)
-  if [ -n "${IMAGE_EXISTS}" ]; then
-   docker rmi ${IMAGE}
-  fi
- fi
-}
 
 unset ENV
 export MSYS_NO_PATHCONV=1
 
+[[ -f "./platform_version.sh" ]]               && source "./platform_version.sh"
 [[ -f "./env.sh"      ]]                       && source "./env.sh"
 [[ -z ${ENV} ]] && [ "${1}" != "prepare-env" ] && echo "${0}: missing or invalid env.sh; run: '${0} prepare-env { dev | test | stage | prod }'" && exit 1
 [[ -f "./env-${ENV}.sh" ]]                     && source "./env-${ENV}.sh"
+
+. "./platform-versions/v_$((PLATFORM_VERSION - 1)).sh"
 
 prepare-env() {
  if verify-env "${1}"; then
@@ -69,6 +51,7 @@ prepare-env() {
   exit 1
  fi
  envsubst < "./env.template" > "./env-${1}.sh"
+ [[ ! -f "./platform_version.sh" ]] && printf "%s\n" "#!/bin/bash" "" "export PLATFORM_VERSION=0" > "./platform_version.sh"
  printf "%s\n" "#!/bin/bash" "" "export ENV=${1}" > "./env.sh"
  echo "${0}: check file './env-${1}.sh', then run '${0} write-configs'"
 }
@@ -76,15 +59,11 @@ write-configs() {
  mkdir -p "./files/blagajnadb/mariadb"
  mkdir -p "./files/blagajnadb/data"
  cp "./config/blagajnadb/my.cnf" "./files/blagajnadb/mariadb/my.cnf"
- chmod 0444 "./files/blagajnadb/mariadb/my.cnf"
  echo "${BLAGAJNADB_ROOT_PASS}" > "./config/blagajnadb/mysql-root-pass-${ENV}.txt"
- echo "${USERDB_PASS}"          > "./config/userdb/postgre-pass-${ENV}.txt"
- echo "MNAPI_OUTDIR=${MNAPI_OUTDIR}" > "./sources/mn-api/.env"
- envsubst '${APP_SERVER_NAME},${WEB_SERVER_NAME}'  < "./config/tlsoffloader/tlsoffloader.conf" > "./config/tlsoffloader/tlsoffloader-${ENV}.conf"
- envsubst '${NODE_VERSION}'                        < "./sources/mb-app.sample.Dockerfile"      > "./sources/mb-app.Dockerfile"
- envsubst '${PHP_VERSION}'                         < "./sources/php.sample.Dockerfile"         > "./sources/php.Dockerfile"
- envsubst                                          < "./config/php/smtp.php"                   > "./config/php/smtp-${ENV}.php"
- envsubst '${NODE_VERSION}'                       < "./sources/mn-api.sample.Dockerfile"      > "./sources/mn-api.Dockerfile"
+ envsubst '${APP_SERVER_NAME},${WEB_SERVER_NAME}' < "./config/tlsoffloader/tlsoffloader.conf" > "./config/tlsoffloader/tlsoffloader-${ENV}.conf"
+ envsubst '${NODE_VERSION}'                       < "./sources/mb-app.sample.Dockerfile"      > "./sources/mb-app.Dockerfile"
+ envsubst '${PHP_VERSION}'                        < "./sources/php.sample.Dockerfile"         > "./sources/php.Dockerfile"
+ envsubst                                         < "./config/php/smtp.php"                   > "./config/php/smtp-${ENV}.php"
 }
 
 preserve-image() {
@@ -100,10 +79,10 @@ preserve-images() {
  preserve-image img_nginx nginx:${NGINX_VERSION}
  preserve-image img_certbot certbot/dns-google:${CERTBOT_VERSION}
  preserve-image img_node node:${NODE_VERSION}
+ preserve-image img_mbapp mbapp:${MBAPP_VERSION}
  preserve-image img_mariadb mariadb:${MARIADB_VERSION}
  preserve-image img_mailserver docker.io/mailserver/docker-mailserver:${MAILSERVER_VERSION}
  preserve-image img_php php:${PHP_VERSION}
- preserve-image img_postgres postgres:${POSTGRES_VERSION}
 }
 release-images() {
  docker stop $(docker ps --format '{{.Names}}' | grep img_)
@@ -142,44 +121,6 @@ blagajnadb-downgrade() {
  if [[ -z "${1}" ]]; then unset DOWNGRADE; else DOWNGRADE="--ver ${1}"; fi
  docker run --rm -v `pwd`/sources/blagajnadb:/blagajnadb:ro --network mb-platform_mb-platform $(docker build -f scripts/dbupdater.Dockerfile -q ./scripts) \
   dbdowngrade /blagajnadb ${DOWNGRADE} -h blagajnadb --port=3306 -u root -p"${BLAGAJNADB_ROOT_PASS}" malablagajna
-}
-
-userdb() {
- if fn-exists userdb-"${1}"; then
-  userdb-"${1}" "${2}"
- else
-  echo
-  echo "usage: ${0} userdb [param]"
-  echo
-  echo "PARAMS:"
-  echo
-  echo " --------------------------------------------------------------------------------------------------"
-  echo "  upgrade [VER]   | runs the new upgrade scripts to upgrade the database to [VER] (max by default)"
-  echo "  downgrade [VER] | runs the downgrade script to downgrade the database to [VER] (default: cur-1)"
-  echo "  login           | logs into the database on the cli"
-  echo "  rmvol           | removes the data volume associated with this container"
-  echo " --------------------------------------------------------------------------------------------------"
-  echo
- fi
-}
-userdb-login() {
- DB_NAME=`docker ps --format "{{.Names}}" | grep userdb`
- docker exec -it ${DB_NAME} psql "dbname=users host=localhost user=postgres password=${USERDB_PASS} port=5432"
-}
-userdb-rmvol() {
- rm -rf ./files/userdb/data
-}
-userdb-upgrade() {
- # if [[ -z "${1}" ]]; then UPGRADE=--full; else UPGRADE="--ver ${1}"; fi
- # docker run --rm -v `pwd`/sources/userdb:/userdb:ro --network mb-platform_mb-platform $(docker build -f scripts/dbupdater.Dockerfile -q ./scripts) \
- #  dbupgrade /userdb --demo ${UPGRADE} -h userdb --port=3306 -u root -p"${BLAGAJNADB_ROOT_PASS}" malablagajna
- DB_NAME=`docker ps --format "{{.Names}}" | grep userdb`
- docker exec -it ${DB_NAME} psql  "dbname=users host=localhost user=postgres password=${USERDB_PASS} port=5432"
-}
-userdb-downgrade() {
- if [[ -z "${1}" ]]; then unset DOWNGRADE; else DOWNGRADE="--ver ${1}"; fi
- docker run --rm -v `pwd`/sources/userdb:/userdb:ro --network mb-platform_mb-platform $(docker build -f scripts/dbupdater.Dockerfile -q ./scripts) \
-  dbdowngrade /userdb ${DOWNGRADE} -h userdb --port=3306 -u root -p"${BLAGAJNADB_ROOT_PASS}" malablagajna
 }
 
 mailserver() {
@@ -262,10 +203,10 @@ app-stop() {
  docker compose -p mb-platform -f docker-compose-apps.yml rm -f mbapp
 }
 app-rm() {
- rm-container mbapp
+ docker rm $(docker ps -a | grep mbapp | awk '{print $1}')
 }
 app-rmi() {
- rm-image mbapp
+ docker rmi $(docker images | grep mbapp | awk '{print $3}')
 }
 app-recreate() {
  app-stop
@@ -275,60 +216,9 @@ app-recreate() {
  app-run
 }
 
-api() {
- if fn-exists api-"${1}"; then
-  api-"${1}" "${2}"
- else
-  echo
-  echo "usage: ${0} api [param]"
-  echo
-  echo "PARAMS:"
-  echo
-  echo " --------------------------------------------------------------------------------------------------"
-  echo "  build           | builds the api"
-  echo "  run             | creates and runs the mnapi container"
-  echo "  logs [LINES]    | shows last [LINES] lines of container's logs, or all by default"
-  echo "  stop            | stops and removes the container"
-  echo "  rm              | removes the api container"
-  echo "  rmi             | removes the api image"
-  echo "  recreate        | stops and removes the container, then runs it anew"
-  echo " --------------------------------------------------------------------------------------------------"
-  echo
- fi
-}
-api-build() {
- cd sources/
- docker build -f mn-api.Dockerfile -t mnapi:latest --build-arg ENV=${ENV} .
- cd ..
-}
-api-run() {
- docker compose -p mb-platform -f docker-compose-infra.yml up -d --no-recreate mnapi
-}
-api-logs() {
- if [[ -z "${1}" ]]; then LINES=all; else LINES="${1}"; fi
- docker compose -p mb-platform -f docker-compose-infra.yml logs -f -t --tail "${LINES}" mnapi
-}
-api-stop() {
- docker compose -p mb-platform -f docker-compose-infra.yml stop mnapi
- docker compose -p mb-platform -f docker-compose-infra.yml rm -f mnapi
-}
-api-rm() {
- rm-container mnapi
-}
-api-rmi() {
- rm-image mnapi
-}
-api-recreate() {
- api-stop
- api-rm
- api-rmi
- api-build
- api-run
-}
+### PLATFORM VERSION MANIPULATION ###
 
-### PLATFORM MANIPULATION ###
-
-up() {
+upgrade-v0() {
  echo "${0}: upgrading v0 -> v1"
  export DOMAINS=(${ALL_DOMAINS})
  CDIR=`pwd`
@@ -350,9 +240,9 @@ up() {
  . "./scripts/letsencrypt/letsencrypt-init.sh"
  write-configs
  letsencrypt-init
- api-recreate
  infra-run
  blagajnadb-upgrade "001"
+ app-recreate
 
  # restore module versions
  cd "${DBUPDATER_FOLDER}"
@@ -367,8 +257,63 @@ up() {
  cd "${BLAGAJNADB_FOLDER}"
  git checkout "${BLAGAJNADB_BRANCH}"
  cd "${CDIR}"
+
+ printf "%s\n" "#!/bin/bash" "" "export PLATFORM_VERSION=1" > "./platform_version.sh"
 }
-down() {
+downgrade-v1() {
+ echo "${0}: downgrading v1 -> v0"
+ infra-stop
+ app-stop
+ VOL_PARAM=
+ if [ "${1}" = "--vol" ]; then
+  VOL_PARAM="--volumes"
+ fi
+ preserve-images
+ set -x
+ docker system prune -a ${VOL_PARAM} -f
+ set +x
+ release-images
+ if [ "${1}" = "--vol" ]; then
+  rm -rf ./files
+ fi
+ printf "%s\n" "#!/bin/bash" "" "export PLATFORM_VERSION=0" > "./platform_version.sh"
+}
+
+### PLATFORM MANIPULATION ###
+
+upgrade() {
+ if [ -z "${PLATFORM_VERSION}" ]; then
+  PLATFORM_VERSION=0
+ fi
+ if fn-exists upgrade-v"${PLATFORM_VERSION}"; then
+  . "./platform-versions/v_${PLATFORM_VERSION}.sh"
+  upgrade-v"${PLATFORM_VERSION}"
+ else
+  echo "${0}: version ${PLATFORM_VERSION} cannot be upgraded: missing upgrade script"
+  exit 1
+ fi
+}
+downgrade() {
+ if [ -z "${PLATFORM_VERSION}" ]; then
+  PLATFORM_VERSION=0
+ fi
+ if fn-exists downgrade-v"${PLATFORM_VERSION}"; then
+  . "./platform-versions/v_$((PLATFORM_VERSION - 1)).sh"
+  downgrade-v"${PLATFORM_VERSION}" "${1}"
+ else
+  echo "${0}: version ${PLATFORM_VERSION} cannot be downgraded"
+  exit 1
+ fi
+}
+reupgrade() {
+ if [ "${ENV}" = "prod" ]; then
+  echo "${0}: refusing to reupgrade in production environment: downgrade, then upgrade manually"
+  exit 1
+ fi
+ downgrade
+ upgrade
+}
+reset() {
  FULL=0
  VOL=0
  if [ "${1}" = "--full" ]; then
@@ -385,33 +330,21 @@ down() {
   if [[ "${FULL}" -eq 1 ]]; then
    rm -f ./env*.sh
   fi
-  infra-stop
-  app-stop
   VOL_PARAM=
   if [[ "${VOL}" -eq 1 ]]; then
-   VOL_PARAM="--volumes"
+   VOL_PARAM="--vol"
   fi
   rm -f ./config/tlsoffloader/tlsoffloader-*.conf
-  preserve-images
-  docker system prune -a ${VOL_PARAM} -f
-  release-images
-  if [[ "${VOL}" -eq 1 ]]; then
-   rm -rf ./files
-  fi
+  rm -rf "./files"
+  source "./platform_version.sh"
+  while [[ "${PLATFORM_VERSION}" -gt 0 ]]; do
+   downgrade "${VOL_PARAM}"
+   source "./platform_version.sh"
+  done
  else
   echo "${0}: refusing to reset ${ENV} environment"
   exit 1
  fi
-}
-upgrade() {
- echo "${0}: upgrading v1 -> v2"
- write-configs
- api-recreate
- infra-run
-}
-reset() {
- down ${@}
- up
 }
 
 CMD=${1}
@@ -421,13 +354,11 @@ case "${CMD}" in
  prepare-env)    prepare-env ${@};;
  write-configs)  write-configs;;
  upgrade)        upgrade;;
+ downgrade)      downgrade ${@};;
+ reupgrade)      reupgrade;;
  reset)          reset ${@};;
- up)             up;;
- down)           down ${@};;
  app)            app ${@};;
- api)            api ${@};;
  blagajnadb)     blagajnadb ${@};;
- userdb)         userdb ${@};;
  mailserver)     mailserver ${@};;
  infra)          infra ${@};;
  *)
@@ -440,19 +371,16 @@ case "${CMD}" in
   echo "  prepare-env [param]    | prepares [param] environment, where [param] is dev|test|stage|prod"
   echo "  write-configs          | writes configuration files based on values in env-[ENV].sh script"
   echo " ---------------------------------------------------------------------------------------------"
-  echo "  upgrade                | upgrades the platform to the current version; previous version"
-  echo "                         | needs to be running, this is for upgrading prod"
-  echo "  down [--full] [--vol]  | resets the environment - development or test only!"
-  echo "  up                     | brings the environment up from scratch, doesn't run in prod, stage"
-  echo "  reset [--full] [--vol] | brings the environment down, then back up"
+  echo "  upgrade                | upgrades the platform to the next version"
+  echo "  downgrade [--vol]      | downgrades the platform to the previous version [removes volumes]"
+  echo "  reupgrade              | best effort to downgrade platform version, then upgrade again"
+  echo "  reset [--full] [--vol] | resets the environment - development or test only!"
   echo " ---------------------------------------------------------------------------------------------"
   echo "  infra [param]          | manipulates the infrastructure containers"
   echo " ---------------------------------------------------------------------------------------------"
   echo "  mailserver [param]     | used for setting up the mailserver"
   echo "  blagajnadb [param]     | used for upgrading or downgrading blagajnadb"
-  echo "  userdb [paran]         | for upgrading, downgrading, and manipulation of userdb"
   echo "  app [param]            | manipulates the mbapp container"
-  echo "  api [param]            | manipulates the mnapi container"
   echo " ---------------------------------------------------------------------------------------------"
   echo
 esac

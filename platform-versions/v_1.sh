@@ -1,8 +1,5 @@
 #!/bin/bash
 
-export QUOTABLE_VERSION=latest
-export DOTNETSDK_VERSION=7.0.400
-export ASPNET_VERSION=7.0.10
 export NGINX_VERSION=1.23.3
 export CERTBOT_VERSION=latest
 export NODE_VERSION=18.13.0-alpine3.16
