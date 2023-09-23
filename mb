@@ -1,14 +1,8 @@
 #!/bin/bash
 
-export QUOTABLE_VERSION=latest
-export DOTNETSDK_VERSION=7.0.400
-export ASPNET_VERSION=7.0.10
 export NGINX_VERSION=1.23.3
 export CERTBOT_VERSION=latest
-export MBAPP_VERSION=latest
 export MARIADB_VERSION=10.9.3
-export MAILSERVER_VERSION=11.3.1
-export PHP_VERSION=8.2.2-fpm-alpine3.17
 export NODE_VERSION=20.7.0-alpine3.17
 export POSTGRES_VERSION=16.0-bookworm
 
@@ -82,7 +76,6 @@ write-configs() {
  echo "MNAPI_OUTDIR=${MNAPI_OUTDIR}" > "./sources/mn-api/.env"
  envsubst '${APP_SERVER_NAME},${WEB_SERVER_NAME}'  < "./config/tlsoffloader/tlsoffloader.conf" > "./config/tlsoffloader/tlsoffloader-${ENV}.conf"
  envsubst '${NODE_VERSION}'                        < "./sources/mb-app.sample.Dockerfile"      > "./sources/mb-app.Dockerfile"
- envsubst '${PHP_VERSION}'                         < "./sources/php.sample.Dockerfile"         > "./sources/php.Dockerfile"
  envsubst                                          < "./config/php/smtp.php"                   > "./config/php/smtp-${ENV}.php"
  envsubst '${NODE_VERSION}'                       < "./sources/mn-api.sample.Dockerfile"      > "./sources/mn-api.Dockerfile"
 }
@@ -101,8 +94,6 @@ preserve-images() {
  preserve-image img_certbot certbot/dns-google:${CERTBOT_VERSION}
  preserve-image img_node node:${NODE_VERSION}
  preserve-image img_mariadb mariadb:${MARIADB_VERSION}
- preserve-image img_mailserver docker.io/mailserver/docker-mailserver:${MAILSERVER_VERSION}
- preserve-image img_php php:${PHP_VERSION}
  preserve-image img_postgres postgres:${POSTGRES_VERSION}
 }
 release-images() {

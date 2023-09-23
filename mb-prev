@@ -8,24 +8,31 @@ export MARIADB_VERSION=10.9.3
 export MAILSERVER_VERSION=11.3.1
 export PHP_VERSION=8.2.2-fpm-alpine3.17
 
+# Submodules
+export SUBMODULES_FOLDER="./subs"
+
 # DBUpdater
 export DBUPDATER_COMMIT="1278320"
-export DBUPDATER_FOLDER="./scripts/dbupdater"
+export DBUPDATER_REPO="git@github.com:maleniti/dbupdater.git"
+export DBUPDATER_FOLDER="dbupdater"
 export DBUPDATER_BRANCH=master
 
 # MB-APP
-export MBAPP_COMMIT=87eacde
-export MBAPP_FOLDER="./sources/mb-app"
+export MBAPP_COMMIT=91cafa8
+export MBAPP_REPO="git@github.com:ReasonSharp/malablagajna-web.git"
+export MBAPP_FOLDER="malablagajna-web"
 export MBAPP_BRANCH=main
 
 # WWW
 export WWW_COMMIT=48dbeac
-export WWW_FOLDER="./sources/www"
+export WWW_REPO="git@github.com:ReasonSharp/male-niti-web.git"
+export WWW_FOLDER="male-niti-web"
 export WWW_BRANCH=main
 
 # BlagajnaDB
 export BLAGAJNADB_COMMIT=d2c1f32
-export BLAGAJNADB_FOLDER="./sources/blagajnadb"
+export BLAGAJNADB_REPO="git@github.com:ReasonSharp/malablagajna.db.git"
+export BLAGAJNADB_FOLDER="malablagajna.db"
 export BLAGAJNADB_BRANCH=main
 
 verify-env() {
@@ -34,16 +41,19 @@ verify-env() {
 fn-exists() {
  declare -F "${1}" > /dev/null
 }
+ccd() {
+ if [ ! -z "${1}" ]; then
+  mkdir -p "${1}"
+  cd "${1}"
+ fi
+}
 
 unset ENV
 export MSYS_NO_PATHCONV=1
 
-[[ -f "./platform_version.sh" ]]               && source "./platform_version.sh"
 [[ -f "./env.sh"      ]]                       && source "./env.sh"
 [[ -z ${ENV} ]] && [ "${1}" != "prepare-env" ] && echo "${0}: missing or invalid env.sh; run: '${0} prepare-env { dev | test | stage | prod }'" && exit 1
 [[ -f "./env-${ENV}.sh" ]]                     && source "./env-${ENV}.sh"
-
-. "./platform-versions/v_$((PLATFORM_VERSION - 1)).sh"
 
 prepare-env() {
  if verify-env "${1}"; then
@@ -51,7 +61,6 @@ prepare-env() {
   exit 1
  fi
  envsubst < "./env.template" > "./env-${1}.sh"
- [[ ! -f "./platform_version.sh" ]] && printf "%s\n" "#!/bin/bash" "" "export PLATFORM_VERSION=0" > "./platform_version.sh"
  printf "%s\n" "#!/bin/bash" "" "export ENV=${1}" > "./env.sh"
  echo "${0}: check file './env-${1}.sh', then run '${0} write-configs'"
 }
@@ -61,7 +70,6 @@ write-configs() {
  cp "./config/blagajnadb/my.cnf" "./files/blagajnadb/mariadb/my.cnf"
  echo "${BLAGAJNADB_ROOT_PASS}" > "./config/blagajnadb/mysql-root-pass-${ENV}.txt"
  envsubst '${APP_SERVER_NAME},${WEB_SERVER_NAME}' < "./config/tlsoffloader/tlsoffloader.conf" > "./config/tlsoffloader/tlsoffloader-${ENV}.conf"
- envsubst '${NODE_VERSION}'                       < "./sources/mb-app.sample.Dockerfile"      > "./sources/mb-app.Dockerfile"
  envsubst '${PHP_VERSION}'                        < "./sources/php.sample.Dockerfile"         > "./sources/php.Dockerfile"
  envsubst                                         < "./config/php/smtp.php"                   > "./config/php/smtp-${ENV}.php"
 }
@@ -187,7 +195,10 @@ app() {
  fi
 }
 app-build() {
- cd sources/
+ ccd "${SUBMODULES_FOLDER}"
+ git clone "${MBAPP_REPO}"
+ cd "${MBAPP_FOLDER}"
+ git reset --hard "${MBAPP_COMMIT}"
  docker build -f mb-app.Dockerfile -t mbapp:latest --build-arg ENV=${ENV} .
  cd ..
 }
@@ -216,25 +227,31 @@ app-recreate() {
  app-run
 }
 
-### PLATFORM VERSION MANIPULATION ###
+### PLATFORM MANIPULATION ###
 
-upgrade-v0() {
+upgrade() {
  echo "${0}: upgrading v0 -> v1"
  export DOMAINS=(${ALL_DOMAINS})
  CDIR=`pwd`
 
  # checkout specific module versions
+ mkdir -p "${SUBMODULES_FOLDER}"
+ cd "${SUBMODULES_FOLDER}"
+ SUBDIR=`pwd`
+
+ git clone "${DBUPDATER_REPO}"
+ git clone "${MBAPP_REPO}"
+ git clone "${WWW_REPO}"
+ git clone "${BLAGAJNADB_REPO}"
+
  cd "${DBUPDATER_FOLDER}"
- git checkout "${DBUPDATER_COMMIT}"
- cd "${CDIR}"
- cd "${MBAPP_FOLDER}"
- git checkout "${MBAPP_COMMIT}"
- cd "${CDIR}"
- cd "${WWW_FOLDER}"
- git checkout "${WWW_COMMIT}"
- cd "${CDIR}"
- cd "${BLAGAJNADB_FOLDER}"
- git checkout "${BLAGAJNADB_COMMIT}"
+ git reset --hard "${DBUPDATER_COMMIT}"
+ cd "${SUBDIR}/${MBAPP_FOLDER}"
+ git reset --hard "${MBAPP_COMMIT}"
+ cd "${SUBDIR}/${WWW_FOLDER}"
+ git reset --hard "${WWW_COMMIT}"
+ cd "${SUBDIR}/${BLAGAJNADB_FOLDER}"
+ git reset --hard "${BLAGAJNADB_COMMIT}"
  cd "${CDIR}"
 
  . "./scripts/letsencrypt/letsencrypt-init.sh"
@@ -244,23 +261,14 @@ upgrade-v0() {
  blagajnadb-upgrade "001"
  app-recreate
 
- # restore module versions
- cd "${DBUPDATER_FOLDER}"
- git checkout "${DBUPDATER_BRANCH}"
- cd "${CDIR}"
- cd "${MBAPP_FOLDER}"
- git checkout "${MBAPP_BRANCH}"
- cd "${CDIR}"
- cd "${WWW_FOLDER}"
- git checkout "${WWW_BRANCH}"
- cd "${CDIR}"
- cd "${BLAGAJNADB_FOLDER}"
- git checkout "${BLAGAJNADB_BRANCH}"
- cd "${CDIR}"
-
- printf "%s\n" "#!/bin/bash" "" "export PLATFORM_VERSION=1" > "./platform_version.sh"
+ # remove submodules
+ rm -rf "${SUBMODULES_FOLDER}"
 }
-downgrade-v1() {
+downgrade() {
+ if [ "${ENV}" = "prod" ]; then
+  echo "${0}: refusing to downgrade in production environment"
+  exit 1
+ fi
  echo "${0}: downgrading v1 -> v0"
  infra-stop
  app-stop
@@ -276,38 +284,10 @@ downgrade-v1() {
  if [ "${1}" = "--vol" ]; then
   rm -rf ./files
  fi
- printf "%s\n" "#!/bin/bash" "" "export PLATFORM_VERSION=0" > "./platform_version.sh"
-}
-
-### PLATFORM MANIPULATION ###
-
-upgrade() {
- if [ -z "${PLATFORM_VERSION}" ]; then
-  PLATFORM_VERSION=0
- fi
- if fn-exists upgrade-v"${PLATFORM_VERSION}"; then
-  . "./platform-versions/v_${PLATFORM_VERSION}.sh"
-  upgrade-v"${PLATFORM_VERSION}"
- else
-  echo "${0}: version ${PLATFORM_VERSION} cannot be upgraded: missing upgrade script"
-  exit 1
- fi
-}
-downgrade() {
- if [ -z "${PLATFORM_VERSION}" ]; then
-  PLATFORM_VERSION=0
- fi
- if fn-exists downgrade-v"${PLATFORM_VERSION}"; then
-  . "./platform-versions/v_$((PLATFORM_VERSION - 1)).sh"
-  downgrade-v"${PLATFORM_VERSION}" "${1}"
- else
-  echo "${0}: version ${PLATFORM_VERSION} cannot be downgraded"
-  exit 1
- fi
 }
 reupgrade() {
  if [ "${ENV}" = "prod" ]; then
-  echo "${0}: refusing to reupgrade in production environment: downgrade, then upgrade manually"
+  echo "${0}: refusing to reupgrade in production environment"
   exit 1
  fi
  downgrade

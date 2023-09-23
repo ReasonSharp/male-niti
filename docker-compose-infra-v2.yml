@@ -31,49 +31,6 @@ services:
         target: /cred.json
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
 
-  php:
-    build:
-      context: ./sources
-      dockerfile: php.Dockerfile
-    restart: unless-stopped
-    networks:
-      - mb-platform
-    volumes:
-      - ./sources/www/html:/var/www/html
-    secrets:
-      - source: smtpcredential
-        target: /smtp-cli/smtp.php
-
-  mailserver:
-    image: docker.io/mailserver/docker-mailserver:${MAILSERVER_VERSION}
-    container_name: mailserver
-    hostname: ${HOSTNAME}
-    domainname: ${WEB_SERVER_NAME}
-    env_file: ./config/mailserver/mailserver.env
-    ports:
-      - "25:25"
-      - "143:143"
-      - "465:465"
-      - "587:587"
-      - "993:993"
-    networks:
-      - mb-platform
-    volumes:
-      - ./files/docker-data/dms/mail-data/:/var/mail/
-      - ./files/docker-data/dms/mail-state/:/var/mail-state/
-      - ./files/docker-data/dms/mail-logs/:/var/log/mail/
-      - ./files/docker-data/dms/config/:/tmp/docker-mailserver/
-      - ./files/certificates/conf:/etc/letsencrypt
-      - /etc/localtime:/etc/localtime:ro
-    restart: unless-stopped
-    stop_grace_period: 1m
-    cap_add:
-      - NET_ADMIN
-    healthcheck:
-      test: "ss --listening --tcp | grep -P 'LISTEN.+:smtp' || exit 1"
-      timeout: 3s
-      retries: 0
-
   blagajnadb:
     image: mariadb:${MARIADB_VERSION}
     restart: unless-stopped
