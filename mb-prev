@@ -254,6 +254,9 @@ upgrade() {
  git reset --hard "${BLAGAJNADB_COMMIT}"
  cd "${CDIR}"
 
+ mkdir -p "./files/www"
+ cp -rf "${SUBDIR}/${WWW_FOLDER}" "./files/www"
+
  . "./scripts/letsencrypt/letsencrypt-init.sh"
  write-configs
  letsencrypt-init
