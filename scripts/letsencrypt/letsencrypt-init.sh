@@ -14,7 +14,7 @@ letsencrypt-init() {
   echo "${0}: creating dummy certificate for ${DOMAINS} ..."
   CERT_PATH="/etc/letsencrypt/live/${DOMAINS}"
   mkdir -p "${DATA_PATH}/conf/live/${DOMAINS}"
-  docker compose -p mb-platform -f "./docker-compose-infra.yml" run --rm --entrypoint "\
+  docker compose -p mb-platform -f "./docker-compose-infra-v2.yml" run --rm --entrypoint "\
     openssl req -x509 -nodes -newkey rsa:${RSA_KEY_SIZ} -days 1\
       -keyout '${CERT_PATH}/privkey.pem' \
       -out '${CERT_PATH}/fullchain.pem' \
@@ -22,12 +22,12 @@ letsencrypt-init() {
   echo
   
   echo "${0}: starting nginx ..."
-  docker compose -p mb-platform -f "./docker-compose-infra.yml" up --force-recreate -d tlsoffloader
+  docker compose -p mb-platform -f "./docker-compose-infra-v2.yml" up --force-recreate -d tlsoffloader
   echo
 
   if [ "${ENV}" = "prod" ]; then
    echo "${0}: deleting dummy certificate for ${DOMAINS} ..."
-   docker compose -p mb-platform -f "./docker-compose-infra.yml" run --rm --entrypoint "\
+   docker compose -p mb-platform -f "./docker-compose-infra-v2.yml" run --rm --entrypoint "\
      rm -Rf /etc/letsencrypt/live/${DOMAINS} && \
      rm -Rf /etc/letsencrypt/archive/${DOMAINS} && \
      rm -Rf /etc/letsencrypt/renewal/${DOMAINS}.conf" certbot
@@ -46,7 +46,7 @@ letsencrypt-init() {
    
    if [ "${ENV}" != "prod" ]; then STAGING="--staging"; fi
    
-   docker compose -p mb-platform -f "./docker-compose-infra.yml" run --rm --entrypoint "\
+   docker compose -p mb-platform -f "./docker-compose-infra-v2.yml" run --rm --entrypoint "\
      certbot certonly -w /var/www/certbot \
        --dns-google \
        --dns-google-credentials /cred.json \
@@ -59,7 +59,7 @@ letsencrypt-init() {
    echo
    
    echo "${0}: reloading nginx ..."
-   docker compose -p mb-platform -f "./docker-compose-infra.yml" exec tlsoffloader nginx -s reload
+   docker compose -p mb-platform -f "./docker-compose-infra-v2.yml" exec tlsoffloader nginx -s reload
   else
    echo "${0}: not running certbot on ${ENV} environment"
   fi

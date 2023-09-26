@@ -8,8 +8,6 @@ services:
       - "443:443"
     networks:
       - mb-platform
-    depends_on:
-      - php
     restart: unless-stopped
     secrets:
       - source: tlsoffloaderconf
@@ -80,12 +78,10 @@ networks:
 
 secrets:
   tlsoffloaderconf:
-    file: "./config/tlsoffloader/tlsoffloader-${ENV}.conf"
+    file: "./files/config/tlsoffloader.conf"
   rootpass:
-    file: "./config/blagajnadb/mysql-root-pass-${ENV}.txt"
+    file: "./files/config/mysql-root-pass.txt"
   certbotcredential:
-    file: "./config/certbot/${DNS_CREDENTIALS}.json"
-  smtpcredential:
-    file: "./config/php/smtp-${ENV}.php"
+    file: "./files/config/${DNS_CREDENTIALS}.json"
   postgrepass:
-    file: "./config/userdb/postgre-pass-${ENV}.txt"
+    file: "./files/config/postgre-pass.txt"

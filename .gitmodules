@@ -1,6 +1,0 @@
-[submodule "scripts/dbupdater"]
-	path = scripts/dbupdater
-	url = git@github.com:maleniti/dbupdater.git
-[submodule "sources/blagajnadb"]
-	path = sources/blagajnadb
-	url = git@github.com:ReasonSharp/malablagajna.db.git

@@ -280,9 +280,7 @@ downgrade() {
   VOL_PARAM="--volumes"
  fi
  preserve-images
- set -x
  docker system prune -a ${VOL_PARAM} -f
- set +x
  release-images
  if [ "${1}" = "--vol" ]; then
   rm -rf ./files

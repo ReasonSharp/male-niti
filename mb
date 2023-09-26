@@ -1,29 +1,24 @@
 #!/bin/bash
 
 export NGINX_VERSION=1.23.3
-export CERTBOT_VERSION=latest
+export CERTBOT_VERSION=v2.6.0
 export MARIADB_VERSION=10.9.3
 export NODE_VERSION=20.7.0-alpine3.17
 export POSTGRES_VERSION=16.0-bookworm
 
+## Submodules
+SUBMODULES_FOLDER="./subs"
+
 # DBUpdater
 export DBUPDATER_COMMIT="1278320"
-export DBUPDATER_FOLDER="./scripts/dbupdater"
+export DBUPDATER_REPO="git@github.com:maleniti/dbupdater.git"
+export DBUPDATER_FOLDER="dbupdater"
 export DBUPDATER_BRANCH=master
-
-# MB-APP
-export MBAPP_COMMIT=87eacde
-export MBAPP_FOLDER="./sources/mb-app"
-export MBAPP_BRANCH=main
-
-# WWW
-export WWW_COMMIT=48dbeac
-export WWW_FOLDER="./sources/www"
-export WWW_BRANCH=main
 
 # BlagajnaDB
 export BLAGAJNADB_COMMIT=d2c1f32
-export BLAGAJNADB_FOLDER="./sources/blagajnadb"
+export BLAGAJNADB_REPO="git@github.com:ReasonSharp/malablagajna.db.git"
+export BLAGAJNADB_FOLDER="malablagajna.db"
 export BLAGAJNADB_BRANCH=main
 
 verify-env() {
@@ -69,15 +64,15 @@ prepare-env() {
 write-configs() {
  mkdir -p "./files/blagajnadb/mariadb"
  mkdir -p "./files/blagajnadb/data"
- cp "./config/blagajnadb/my.cnf" "./files/blagajnadb/mariadb/my.cnf"
- chmod 0444 "./files/blagajnadb/mariadb/my.cnf"
- echo "${BLAGAJNADB_ROOT_PASS}" > "./config/blagajnadb/mysql-root-pass-${ENV}.txt"
- echo "${USERDB_PASS}"          > "./config/userdb/postgre-pass-${ENV}.txt"
- echo "MNAPI_OUTDIR=${MNAPI_OUTDIR}" > "./sources/mn-api/.env"
- envsubst '${APP_SERVER_NAME},${WEB_SERVER_NAME}'  < "./config/tlsoffloader/tlsoffloader.conf" > "./config/tlsoffloader/tlsoffloader-${ENV}.conf"
- envsubst '${NODE_VERSION}'                        < "./sources/mb-app.sample.Dockerfile"      > "./sources/mb-app.Dockerfile"
- envsubst                                          < "./config/php/smtp.php"                   > "./config/php/smtp-${ENV}.php"
- envsubst '${NODE_VERSION}'                       < "./sources/mn-api.sample.Dockerfile"      > "./sources/mn-api.Dockerfile"
+ mkdir -p "./files/config"
+ cp       "./config/blagajnadb/my.cnf"               "./files/blagajnadb/mariadb/my.cnf"
+ cp       "./config/certbot/${DNS_CREDENTIALS}.json" "./files/config/${DNS_CREDENTIALS}.json"
+ chmod    0444                                       "./files/blagajnadb/mariadb/my.cnf"
+ echo     "${BLAGAJNADB_ROOT_PASS}"                                                            > "./files/config/mysql-root-pass.txt"
+ echo     "${USERDB_PASS}"                                                                     > "./files/config/postgre-pass.txt"
+ envsubst '${APP_SERVER_NAME},${WEB_SERVER_NAME}'  < "./config/tlsoffloader/tlsoffloader.conf" > "./files/config/tlsoffloader.conf"
+ echo     "MNAPI_OUTDIR=${MNAPI_OUTDIR}"                                                       > "./sources/mn-api/.env"
+ envsubst '${NODE_VERSION}'                        < "./sources/mn-api.sample.Dockerfile"      > "./sources/mn-api.Dockerfile"
 }
 
 preserve-image() {
@@ -173,14 +168,6 @@ userdb-downgrade() {
   dbdowngrade /userdb ${DOWNGRADE} -h userdb --port=3306 -u root -p"${BLAGAJNADB_ROOT_PASS}" malablagajna
 }
 
-mailserver() {
- if [ "${ENV}" != "prod" ]; then
-  echo "${0}: can only execute mailserver in production environment"
-  exit 1
- fi
- ./config/mailserver/setup.sh ${@}
-}
-
 infra() {
  if fn-exists infra-"${1}"; then
   infra-"${1}" "${2}"
@@ -200,70 +187,19 @@ infra() {
  fi
 }
 infra-run() {
- docker compose -p mb-platform -f docker-compose-infra.yml up -d
+ docker compose -p mb-platform -f docker-compose-infra-v2.yml up -d
 }
 infra-logs() {
  if [[ -z "${1}" ]]; then LINES=all; else LINES="${1}"; fi
  if [[ ! -z "${2}" ]]; then CONTAINER="${2}"; fi
- docker compose -p mb-platform -f docker-compose-infra.yml logs -f -t --tail "${LINES}" ${CONTAINER}
+ docker compose -p mb-platform -f docker-compose-infra-v2.yml logs -f -t --tail "${LINES}" ${CONTAINER}
 }
 infra-stop() {
- docker compose -p mb-platform -f docker-compose-infra.yml down
+ docker compose -p mb-platform -f docker-compose-infra-v2.yml down
 }
 infra-recreate() {
  infra-stop
  infra-run
-}
-
-app() {
- if fn-exists app-"${1}"; then
-  app-"${1}" "${2}"
- else
-  echo
-  echo "usage: ${0} app [param]"
-  echo
-  echo "PARAMS:"
-  echo
-  echo " --------------------------------------------------------------------------------------------------"
-  echo "  build           | builds the mbapp web app"
-  echo "  run             | creates and runs the mbapp container"
-  echo "  logs [LINES]    | shows last [LINES] lines of container's logs, or all by default"
-  echo "  stop            | stops and removes the container"
-  echo "  rm              | removes the app container"
-  echo "  rmi             | removes the app image"
-  echo "  recreate        | stops and removes the container, then runs it anew"
-  echo " --------------------------------------------------------------------------------------------------"
-  echo
- fi
-}
-app-build() {
- cd sources/
- docker build -f mb-app.Dockerfile -t mbapp:latest --build-arg ENV=${ENV} .
- cd ..
-}
-app-run() {
- docker compose -p mb-platform -f docker-compose-apps.yml up -d --no-recreate mbapp
-}
-app-logs() {
- if [[ -z "${1}" ]]; then LINES=all; else LINES="${1}"; fi
- docker compose -p mb-platform -f docker-compose-apps.yml logs -f -t --tail "${LINES}" mbapp
-}
-app-stop() {
- docker compose -p mb-platform -f docker-compose-apps.yml stop mbapp
- docker compose -p mb-platform -f docker-compose-apps.yml rm -f mbapp
-}
-app-rm() {
- rm-container mbapp
-}
-app-rmi() {
- rm-image mbapp
-}
-app-recreate() {
- app-stop
- app-rm
- app-rmi
- app-build
- app-run
 }
 
 api() {
@@ -293,15 +229,15 @@ api-build() {
  cd ..
 }
 api-run() {
- docker compose -p mb-platform -f docker-compose-infra.yml up -d --no-recreate mnapi
+ docker compose -p mb-platform -f docker-compose-infra-v2.yml up -d --no-recreate mnapi
 }
 api-logs() {
  if [[ -z "${1}" ]]; then LINES=all; else LINES="${1}"; fi
- docker compose -p mb-platform -f docker-compose-infra.yml logs -f -t --tail "${LINES}" mnapi
+ docker compose -p mb-platform -f docker-compose-infra-v2.yml logs -f -t --tail "${LINES}" mnapi
 }
 api-stop() {
- docker compose -p mb-platform -f docker-compose-infra.yml stop mnapi
- docker compose -p mb-platform -f docker-compose-infra.yml rm -f mnapi
+ docker compose -p mb-platform -f docker-compose-infra-v2.yml stop mnapi
+ docker compose -p mb-platform -f docker-compose-infra-v2.yml rm -f mnapi
 }
 api-rm() {
  rm-container mnapi
@@ -320,22 +256,24 @@ api-recreate() {
 ### PLATFORM MANIPULATION ###
 
 up() {
- echo "${0}: upgrading v0 -> v1"
+ if [ -d "${SUBMODULES_FOLDER}" ]; then
+  rm -rf "${SUBMODULES_FOLDER}"
+ fi
  export DOMAINS=(${ALL_DOMAINS})
  CDIR=`pwd`
 
- # checkout specific module versions
- cd "${DBUPDATER_FOLDER}"
- git checkout "${DBUPDATER_COMMIT}"
- cd "${CDIR}"
- cd "${MBAPP_FOLDER}"
- git checkout "${MBAPP_COMMIT}"
- cd "${CDIR}"
- cd "${WWW_FOLDER}"
- git checkout "${WWW_COMMIT}"
- cd "${CDIR}"
- cd "${BLAGAJNADB_FOLDER}"
- git checkout "${BLAGAJNADB_COMMIT}"
+ # clone specific submodule versions
+ mkdir -p "${SUBMODULES_FOLDER}"
+ cd "${SUBMODULES_FOLDER}"
+ SUBDIR=`pwd`
+
+ git clone "${DBUPDATER_REPO}"
+ git clone "${BLAGAJNADB_REPO}"
+
+ cd "${SUBDIR}/${DBUPDATER_FOLDER}"
+ git reset --hard "${DBUPDATER_COMMIT}"
+ cd "${SUBDIR}/${BLAGAJNADB_FOLDER}"
+ git reset --hard "${BLAGAJNADB_COMMIT}"
  cd "${CDIR}"
 
  . "./scripts/letsencrypt/letsencrypt-init.sh"
@@ -345,19 +283,8 @@ up() {
  infra-run
  blagajnadb-upgrade "001"
 
- # restore module versions
- cd "${DBUPDATER_FOLDER}"
- git checkout "${DBUPDATER_BRANCH}"
- cd "${CDIR}"
- cd "${MBAPP_FOLDER}"
- git checkout "${MBAPP_BRANCH}"
- cd "${CDIR}"
- cd "${WWW_FOLDER}"
- git checkout "${WWW_BRANCH}"
- cd "${CDIR}"
- cd "${BLAGAJNADB_FOLDER}"
- git checkout "${BLAGAJNADB_BRANCH}"
- cd "${CDIR}"
+ # remove submodules
+ rm -rf "${SUBMODULES_FOLDER}"
 }
 down() {
  FULL=0
@@ -377,7 +304,6 @@ down() {
    rm -f ./env*.sh
   fi
   infra-stop
-  app-stop
   VOL_PARAM=
   if [[ "${VOL}" -eq 1 ]]; then
    VOL_PARAM="--volumes"
@@ -395,10 +321,12 @@ down() {
  fi
 }
 upgrade() {
- echo "${0}: upgrading v1 -> v2"
- write-configs
- api-recreate
- infra-run
+ echo "${0}: not implemented"
+ exit 1
+ #echo "${0}: upgrading v1 -> v2"
+ #write-configs
+ #api-recreate
+ #infra-run
 }
 reset() {
  down ${@}
@@ -415,11 +343,9 @@ case "${CMD}" in
  reset)          reset ${@};;
  up)             up;;
  down)           down ${@};;
- app)            app ${@};;
  api)            api ${@};;
  blagajnadb)     blagajnadb ${@};;
  userdb)         userdb ${@};;
- mailserver)     mailserver ${@};;
  infra)          infra ${@};;
  *)
   echo
@@ -439,10 +365,8 @@ case "${CMD}" in
   echo " ---------------------------------------------------------------------------------------------"
   echo "  infra [param]          | manipulates the infrastructure containers"
   echo " ---------------------------------------------------------------------------------------------"
-  echo "  mailserver [param]     | used for setting up the mailserver"
   echo "  blagajnadb [param]     | used for upgrading or downgrading blagajnadb"
   echo "  userdb [paran]         | for upgrading, downgrading, and manipulation of userdb"
-  echo "  app [param]            | manipulates the mbapp container"
   echo "  api [param]            | manipulates the mnapi container"
   echo " ---------------------------------------------------------------------------------------------"
   echo
