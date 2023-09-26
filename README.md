@@ -1,27 +1,43 @@
-# Mnweb
+# Male Niti Platform
 
-This project was generated with [Angular CLI](https://github.com/angular/angular-cli) version 16.2.0.
+This project is a platform that builds the entire Male Niti website with all its services and applications.
 
-## Development server
+## Building the platform
 
-Run `ng serve` for a dev server. Navigate to `http://localhost:4200/`. The application will automatically reload if you change any of the source files.
+To build the entire platform, you need to run some commands and write a couple of configurations:
 
-## Code scaffolding
+### Step 1: Prepare the environment
 
-Run `ng generate component component-name` to generate a new component. You can also use `ng generate directive|pipe|service|class|guard|interface|enum|module`.
+```bash
+./mn prepare-env [ENV]
+```
 
-## Build
+Replace `[ENV]` witht the desired environment: `dev`, `test`, `stage` or `prod`.
 
-Run `ng build` to build the project. The build artifacts will be stored in the `dist/` directory.
+This will create two files: `env.sh` and `env-[ENV].sh`.
 
-## Running unit tests
+### Step 2: Configure the platform
 
-Run `ng test` to execute the unit tests via [Karma](https://karma-runner.github.io).
+Now edit the `env-[ENV].sh` file and enter all configuration details.
 
-## Running end-to-end tests
+### Step 3: Build the platform
 
-Run `ng e2e` to execute the end-to-end tests via a platform of your choice. To use this command, you need to first add a package that implements end-to-end testing capabilities.
+From here, you can run `./mn up` to bring up the entire platform, or you can bring up individual components.
 
-## Further help
+To bring up individual components manually, first run `./mn write-configs`. This will write configuration files
 
-To get more help on the Angular CLI use `ng help` or go check out the [Angular CLI Overview and Command Reference](https://angular.io/cli) page.
+See `./mn` output for additional commands.
+
+## Stopping the platform
+
+### Keep the volumes (data)
+
+To stop the entire platform, run `./mn down`.
+
+To also remove the environment information, run `./mn down --full`.
+
+### Remove the volumes (data)
+
+To stop the entire platform and erase all volumes (all data), run `./mn down --vol`.
+
+To also remove the environment information, run `./mn down --vol --full`.

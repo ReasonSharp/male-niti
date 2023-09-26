@@ -9,17 +9,27 @@ export POSTGRES_VERSION=16.0-bookworm
 ## Submodules
 SUBMODULES_FOLDER="./subs"
 
-# DBUpdater
-export DBUPDATER_COMMIT="1278320"
-export DBUPDATER_REPO="git@github.com:maleniti/dbupdater.git"
-export DBUPDATER_FOLDER="dbupdater"
-export DBUPDATER_BRANCH=master
+declare -A MODS
 
-# BlagajnaDB
-export BLAGAJNADB_COMMIT=d2c1f32
-export BLAGAJNADB_REPO="git@github.com:ReasonSharp/malablagajna.db.git"
-export BLAGAJNADB_FOLDER="malablagajna.db"
-export BLAGAJNADB_BRANCH=main
+MODS[DBUPDATER,REPO]="git@github.com:maleniti/dbupdater.git"
+MODS[DBUPDATER,COMMIT]="1278320"
+MODS[DBUPDATER,FOLDER]="dbupdater"
+MODS[DBUPDATER,BRANCH]="master"
+
+MODS[BLAGAJNADB,REPO]="git@github.com:ReasonSharp/malablagajna.db.git"
+MODS[BLAGAJNADB,COMMIT]="d2c1f32"
+MODS[BLAGAJNADB,FOLDER]="malablagajna.db"
+MODS[BLAGAJNADB,BRANCH]="main"
+
+MODS[WWW,REPO]="git@github.com:ReasonSharp/male-niti-web.git"
+MODS[WWW,COMMIT]="147591449a990574e3f62023650a33bbc51d4f1b"
+MODS[WWW,FOLDER]="male-niti-web"
+MODS[WWW,BRANCH]="main"
+
+MODS[API,REPO]="git@github.com:ReasonSharp/male-niti-api.git"
+MODS[API,COMMIT]="da39fa6c1933dbdf9a44645417f9138e0142761e"
+MODS[API,FOLDER]="male-niti-api"
+MODS[API,BRANCH]="main"
 
 verify-env() {
  [ -z "${1}" ] || [ ! "${1}" = "dev" ] && [ ! "${1}" = "test" ] && [ ! "${1}" = "stage" ] && [ ! "${1}" = "prod" ]
