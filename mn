@@ -2,34 +2,24 @@
 
 export NGINX_VERSION=1.23.3
 export CERTBOT_VERSION=v2.6.0
-export MARIADB_VERSION=10.9.3
 export NODE_VERSION=20.7.0-alpine3.17
-export POSTGRES_VERSION=16.0-bookworm
 
 ## Submodules
 SUBMODULES_FOLDER="./subs"
 
-declare -A MODS
+MODS=("WWW" "API")
 
-MODS[DBUPDATER,REPO]="git@github.com:maleniti/dbupdater.git"
-MODS[DBUPDATER,COMMIT]="1278320"
-MODS[DBUPDATER,FOLDER]="dbupdater"
-MODS[DBUPDATER,BRANCH]="master"
+declare -A MODDATA
 
-MODS[BLAGAJNADB,REPO]="git@github.com:ReasonSharp/malablagajna.db.git"
-MODS[BLAGAJNADB,COMMIT]="d2c1f32"
-MODS[BLAGAJNADB,FOLDER]="malablagajna.db"
-MODS[BLAGAJNADB,BRANCH]="main"
+MODDATA[WWW,REPO]="git@github.com:ReasonSharp/male-niti-web.git"
+MODDATA[WWW,COMMIT]="147591449a990574e3f62023650a33bbc51d4f1b"
+MODDATA[WWW,FOLDER]="male-niti-web"
+MODDATA[WWW,BRANCH]="main"
 
-MODS[WWW,REPO]="git@github.com:ReasonSharp/male-niti-web.git"
-MODS[WWW,COMMIT]="147591449a990574e3f62023650a33bbc51d4f1b"
-MODS[WWW,FOLDER]="male-niti-web"
-MODS[WWW,BRANCH]="main"
-
-MODS[API,REPO]="git@github.com:ReasonSharp/male-niti-api.git"
-MODS[API,COMMIT]="da39fa6c1933dbdf9a44645417f9138e0142761e"
-MODS[API,FOLDER]="male-niti-api"
-MODS[API,BRANCH]="main"
+MODDATA[API,REPO]="git@github.com:ReasonSharp/male-niti-api.git"
+MODDATA[API,COMMIT]="da39fa6c1933dbdf9a44645417f9138e0142761e"
+MODDATA[API,FOLDER]="male-niti-api"
+MODDATA[API,BRANCH]="main"
 
 verify-env() {
  [ -z "${1}" ] || [ ! "${1}" = "dev" ] && [ ! "${1}" = "test" ] && [ ! "${1}" = "stage" ] && [ ! "${1}" = "prod" ]
@@ -72,17 +62,13 @@ prepare-env() {
  echo "${0}: check file './env-${1}.sh', then run '${0} write-configs'"
 }
 write-configs() {
- mkdir -p "./files/blagajnadb/mariadb"
- mkdir -p "./files/blagajnadb/data"
+ echo     "${0}: configuring infrastructure"
  mkdir -p "./files/config"
- cp       "./config/blagajnadb/my.cnf"               "./files/blagajnadb/mariadb/my.cnf"
  cp       "./config/certbot/${DNS_CREDENTIALS}.json" "./files/config/${DNS_CREDENTIALS}.json"
- chmod    0444                                       "./files/blagajnadb/mariadb/my.cnf"
- echo     "${BLAGAJNADB_ROOT_PASS}"                                                            > "./files/config/mysql-root-pass.txt"
- echo     "${USERDB_PASS}"                                                                     > "./files/config/postgre-pass.txt"
  envsubst '${APP_SERVER_NAME},${WEB_SERVER_NAME}'  < "./config/tlsoffloader/tlsoffloader.conf" > "./files/config/tlsoffloader.conf"
- echo     "MNAPI_OUTDIR=${MNAPI_OUTDIR}"                                                       > "./sources/mn-api/.env"
- envsubst '${NODE_VERSION}'                        < "./sources/mn-api.sample.Dockerfile"      > "./sources/mn-api.Dockerfile"
+
+ echo     "${0}: configuring API"
+ echo     "MNAPI_OUTDIR=${MNAPI_OUTDIR}"                                                       > "${SUBMODULES_FOLDER}/${MODDATA["API,FOLDER"]}/.env"
 }
 
 preserve-image() {
@@ -98,8 +84,6 @@ preserve-images() {
  preserve-image img_nginx nginx:${NGINX_VERSION}
  preserve-image img_certbot certbot/dns-google:${CERTBOT_VERSION}
  preserve-image img_node node:${NODE_VERSION}
- preserve-image img_mariadb mariadb:${MARIADB_VERSION}
- preserve-image img_postgres postgres:${POSTGRES_VERSION}
 }
 release-images() {
  docker stop $(docker ps --format '{{.Names}}' | grep img_)
@@ -107,76 +91,6 @@ release-images() {
 }
 
 ### CONTAINER MANIPULATION ###
-
-blagajnadb() {
- if fn-exists blagajnadb-"${1}"; then
-  blagajnadb-"${1}" "${2}"
- else
-  echo
-  echo "usage: ${0} blagajnadb [param]"
-  echo
-  echo "PARAMS:"
-  echo
-  echo " --------------------------------------------------------------------------------------------------"
-  echo "  upgrade [VER]   | runs the new upgrade scripts to upgrade the database to [VER] (max by default)"
-  echo "  downgrade [VER] | runs the downgrade script to downgrade the database to [VER] (default: cur-1)"
-  echo "  login           | logs into the database on the cli"
-  echo " --------------------------------------------------------------------------------------------------"
-  echo
- fi
-}
-blagajnadb-login() {
- DB_NAME=`docker ps --format "{{.Names}}" | grep blagajnadb`
- docker exec -it ${DB_NAME} mysql -u root -p"${DB_ROOT_PASS}" malablagajna
-}
-blagajnadb-upgrade() {
- if [[ -z "${1}" ]]; then UPGRADE=--full; else UPGRADE="--ver ${1}"; fi
- docker run --rm -v `pwd`/sources/blagajnadb:/blagajnadb:ro --network mb-platform_mb-platform $(docker build -f scripts/dbupdater.Dockerfile -q ./scripts) \
-  dbupgrade /blagajnadb --demo ${UPGRADE} -h blagajnadb --port=3306 -u root -p"${BLAGAJNADB_ROOT_PASS}" malablagajna
-}
-blagajnadb-downgrade() {
- if [[ -z "${1}" ]]; then unset DOWNGRADE; else DOWNGRADE="--ver ${1}"; fi
- docker run --rm -v `pwd`/sources/blagajnadb:/blagajnadb:ro --network mb-platform_mb-platform $(docker build -f scripts/dbupdater.Dockerfile -q ./scripts) \
-  dbdowngrade /blagajnadb ${DOWNGRADE} -h blagajnadb --port=3306 -u root -p"${BLAGAJNADB_ROOT_PASS}" malablagajna
-}
-
-userdb() {
- if fn-exists userdb-"${1}"; then
-  userdb-"${1}" "${2}"
- else
-  echo
-  echo "usage: ${0} userdb [param]"
-  echo
-  echo "PARAMS:"
-  echo
-  echo " --------------------------------------------------------------------------------------------------"
-  echo "  upgrade [VER]   | runs the new upgrade scripts to upgrade the database to [VER] (max by default)"
-  echo "  downgrade [VER] | runs the downgrade script to downgrade the database to [VER] (default: cur-1)"
-  echo "  login           | logs into the database on the cli"
-  echo "  rmvol           | removes the data volume associated with this container"
-  echo " --------------------------------------------------------------------------------------------------"
-  echo
- fi
-}
-userdb-login() {
- DB_NAME=`docker ps --format "{{.Names}}" | grep userdb`
- docker exec -it ${DB_NAME} psql "dbname=users host=localhost user=postgres password=${USERDB_PASS} port=5432"
-}
-userdb-rmvol() {
- rm -rf ./files/userdb/data
-}
-userdb-upgrade() {
- # if [[ -z "${1}" ]]; then UPGRADE=--full; else UPGRADE="--ver ${1}"; fi
- # docker run --rm -v `pwd`/sources/userdb:/userdb:ro --network mb-platform_mb-platform $(docker build -f scripts/dbupdater.Dockerfile -q ./scripts) \
- #  dbupgrade /userdb --demo ${UPGRADE} -h userdb --port=3306 -u root -p"${BLAGAJNADB_ROOT_PASS}" malablagajna
- DB_NAME=`docker ps --format "{{.Names}}" | grep userdb`
- docker exec -it ${DB_NAME} psql  "dbname=users host=localhost user=postgres password=${USERDB_PASS} port=5432"
-}
-userdb-downgrade() {
- if [[ -z "${1}" ]]; then unset DOWNGRADE; else DOWNGRADE="--ver ${1}"; fi
- docker run --rm -v `pwd`/sources/userdb:/userdb:ro --network mb-platform_mb-platform $(docker build -f scripts/dbupdater.Dockerfile -q ./scripts) \
-  dbdowngrade /userdb ${DOWNGRADE} -h userdb --port=3306 -u root -p"${BLAGAJNADB_ROOT_PASS}" malablagajna
-}
 
 infra() {
  if fn-exists infra-"${1}"; then
@@ -234,9 +148,10 @@ api() {
  fi
 }
 api-build() {
- cd sources/
- docker build -f mn-api.Dockerfile -t mnapi:latest --build-arg ENV=${ENV} .
- cd ..
+ CDIR=`pwd`
+ cd "${SUBMODULES_FOLDER}/${MODDATA["API,FOLDER"]}"
+ docker build -t mnapi:latest --build-arg ENV=${ENV} .
+ cd "${CDIR}"
 }
 api-run() {
  docker compose -p mb-platform -f docker-compose-infra-v2.yml up -d --no-recreate mnapi
@@ -263,6 +178,38 @@ api-recreate() {
  api-run
 }
 
+www() {
+ if fn-exists www-"${1}"; then
+  www-"${1}" "${2}"
+ else
+  echo
+  echo "usage: ${0} www [param]"
+  echo
+  echo "PARAMS:"
+  echo
+  echo " --------------------------------------------------------------------------------------------------"
+  echo "  build           | builds the www"
+  echo "  rmi             | removes the www image"
+  echo "  recreate        | removes the image, then builds it anew"
+  echo " --------------------------------------------------------------------------------------------------"
+  echo
+ fi
+}
+www-build() {
+ CDIR=`pwd`
+ cd "${SUBMODULES_FOLDER}/${MODDATA["WWW,FOLDER"]}"
+ docker build -t mnapi:latest --build-arg ENV=${ENV} .
+ cd "${CDIR}"
+ docker run --rm -v "./files/www:/www:rw" mnapi:latest //bin/sh -c "cp -r /usr/share/nginx/html /www"
+}
+www-rmi() {
+ rm-image mnapi
+}
+www-recreate() {
+ www-rmi
+ www-build
+}
+
 ### PLATFORM MANIPULATION ###
 
 up() {
@@ -272,26 +219,30 @@ up() {
  export DOMAINS=(${ALL_DOMAINS})
  CDIR=`pwd`
 
- # clone specific submodule versions
  mkdir -p "${SUBMODULES_FOLDER}"
  cd "${SUBMODULES_FOLDER}"
  SUBDIR=`pwd`
 
- git clone "${DBUPDATER_REPO}"
- git clone "${BLAGAJNADB_REPO}"
+ # clone specific submodule versions
+ for MOD in "${MODS[@]}"; do
+  echo $MOD
+  REPO="${MODDATA["${MOD},REPO"]}"
+  COMMIT="${MODDATA["${MOD},COMMIT"]}"
+  FOLDER="${MODDATA["${MOD},FOLDER"]}"
+  git clone "${REPO}"
+  cd "${FOLDER}"
+  git reset --hard "${COMMIT}"
+  cd "${SUBDIR}"
+ done
 
- cd "${SUBDIR}/${DBUPDATER_FOLDER}"
- git reset --hard "${DBUPDATER_COMMIT}"
- cd "${SUBDIR}/${BLAGAJNADB_FOLDER}"
- git reset --hard "${BLAGAJNADB_COMMIT}"
  cd "${CDIR}"
 
  . "./scripts/letsencrypt/letsencrypt-init.sh"
  write-configs
  letsencrypt-init
  api-recreate
+ www-build
  infra-run
- blagajnadb-upgrade "001"
 
  # remove submodules
  rm -rf "${SUBMODULES_FOLDER}"
@@ -354,9 +305,8 @@ case "${CMD}" in
  up)             up;;
  down)           down ${@};;
  api)            api ${@};;
- blagajnadb)     blagajnadb ${@};;
- userdb)         userdb ${@};;
  infra)          infra ${@};;
+ www)            www ${@};;
  *)
   echo
   echo "usage: ${0} {command} [parameters]"
@@ -375,9 +325,8 @@ case "${CMD}" in
   echo " ---------------------------------------------------------------------------------------------"
   echo "  infra [param]          | manipulates the infrastructure containers"
   echo " ---------------------------------------------------------------------------------------------"
-  echo "  blagajnadb [param]     | used for upgrading or downgrading blagajnadb"
-  echo "  userdb [paran]         | for upgrading, downgrading, and manipulation of userdb"
   echo "  api [param]            | manipulates the mnapi container"
+  echo "  www [param]            | manipulates the website container"
   echo " ---------------------------------------------------------------------------------------------"
   echo
 esac

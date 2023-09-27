@@ -24,7 +24,7 @@ Now edit the `env-[ENV].sh` file and enter all configuration details.
 
 From here, you can run `./mn up` to bring up the entire platform, or you can bring up individual components.
 
-To bring up individual components manually, first run `./mn write-configs`. This will write configuration files
+To bring up individual components manually, first run `./mn write-configs`. This will write configuration files.
 
 See `./mn` output for additional commands.
 
