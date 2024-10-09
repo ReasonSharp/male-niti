@@ -1,0 +1,6 @@
+*
+!.gitignore
+!certbot
+!nginx
+!certbot/*
+!nginx/*

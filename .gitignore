@@ -1,5 +1,5 @@
 data
 files
-env*.sh
+env
 platform_version.sh
 subs

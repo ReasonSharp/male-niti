@@ -1,5 +1,62 @@
 #!/bin/bash
 
+if [ ! -f ./env ]; then
+ envsubst < "./env.template" > "./env"
+ echo "env file created; edit it to configure the platform"
+ exit 0
+fi
+
+PREFIX=mn
+API_FOLDER=api
+BLOG_FOLDER=blog
+WWW_FOLDER=www
+
+export API_CONTAINER=${PREFIX}-${API_FOLDER}
+export BLOG_CONTAINER=${PREFIX}-${BLOG_FOLDER}
+export WWW_CONTAINER=${PREFIX}-${WWW_FOLDER}
+
+. ./env
+
+mkdir -p files/www/html
+mkdir -p files/config
+
+# bring old platform down; in the future this should be done with minimum downtime
+docker compose -p mb-platform -f docker-compose.yml down
+
+# setup configs and certs
+envsubst '${APP_SERVER_NAME},${WEB_SERVER_NAME}'  < "./containers/nginx/tlsoffloader.conf" > "./files/config/tlsoffloader.conf"
+export DOMAINS=(${ALL_DOMAINS})
+cp "${DNS_CRED_FULL_PATH}" ./files/config/
+export DNS_CREDENTIALS=./files/config/$(basename "${DNS_CRED_PATH}")
+# this safely runs or skips certbot depending on ${ENV}
+. "./containers/certbot/letsencrypt-init.sh"
+letsencrypt-init
+
+# at the moment, just clone everything, in the future enable checking out individually
+cd containers
+rm -rf "${API_FOLDER}" "${BLOG_FOLDER}" "${WWW_FOLDER}"
+git clone git@github.com:ReasonSharp/male-niti-api.git "${API_FOLDER}"
+git clone git@github.com:ReasonSharp/male-niti-blog.git "${BLOG_FOLDER}"
+git clone git@github.com:ReasonSharp/male-niti-web.git "${WWW_FOLDER}"
+
+cd "${API_FOLDER}"
+docker build . -t ${API_CONTAINER}
+cd ..
+cd "${BLOG_FOLDER}"
+docker build . -t ${BLOG_CONTAINER}
+cd ..
+cd "${WWW_FOLDER}"
+docker build . -t ${WWW_CONTAINER}
+cd ../..
+
+docker compose -p mb-platform -f docker-compose.yml up -d
+
+# cleanup
+rm -rf ./containers/"${API_FOLDER}" ./containers/"${BLOG_FOLDER}" ./containers/"${WWW_FOLDER}"
+docker system prune -a -f
+
+exit 0
+
 export NGINX_VERSION=1.23.3
 export CERTBOT_VERSION=v2.6.0
 export NODE_VERSION=20.7.0-alpine3.17
@@ -71,24 +128,7 @@ write-configs() {
  echo     "MNAPI_OUTDIR=${MNAPI_OUTDIR}"                                                       > "${SUBMODULES_FOLDER}/${MODDATA["API,FOLDER"]}/.env"
 }
 
-preserve-image() {
- if [ "${1}" = "img_certbot" ]; then
-  if [ "${ENV}" = "prod" ]; then
-   certbot-run
-  fi
- else
-  docker run -d --name ${1} ${2} //bin/sh -c "while true; do sleep 1; done"
- fi
-}
-preserve-images() {
- preserve-image img_nginx nginx:${NGINX_VERSION}
- preserve-image img_certbot certbot/dns-google:${CERTBOT_VERSION}
- preserve-image img_node node:${NODE_VERSION}
-}
-release-images() {
- docker stop $(docker ps --format '{{.Names}}' | grep img_)
- docker rm $(docker ps -a --format '{{.Names}}' | grep img_)
-}
+
 
 ### CONTAINER MANIPULATION ###
 
