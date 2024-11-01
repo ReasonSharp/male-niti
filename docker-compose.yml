@@ -31,7 +31,7 @@ services:
     image: postgres:17.0-alpine3.20
     restart: unless-stopped
     environment:
-      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_PASSWORD: ${DB_PASS}
       PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       - ./files/postgres:/var/lib/postgresql/data
