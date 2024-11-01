@@ -49,10 +49,10 @@ cd "${API_FOLDER}"
 docker build . -t ${API_CONTAINER}
 cd ..
 cd "${BLOG_FOLDER}"
-docker build --build-arg ENV=prod --build-arg PROJECT_NAME="Male Niti Blog" . -t ${BLOG_CONTAINER}
+docker build --build-arg ENV=${ENV} --build-arg PROJECT_NAME="Male Niti Blog" . -t ${BLOG_CONTAINER}
 cd ..
 cd "${NAKEDDIARIES_FOLDER}"
-docker build --build-arg ENV=prod --build-arg PROJECT_NAME="Naked Diaries" . -t ${NAKEDDIARIES_CONTAINER}
+docker build --build-arg ENV=${ENV} --build-arg PROJECT_NAME="Naked Diaries" . -t ${NAKEDDIARIES_CONTAINER}
 cd ..
 cd "${WWW_FOLDER}"
 docker build . -t ${WWW_CONTAINER}
