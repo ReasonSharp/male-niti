@@ -27,6 +27,15 @@ services:
         target: /cred.json
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do certbot renew; sleep 12h & wait $${!}; done;'"
 
+  db:
+    image: postgres:17.0-alpine3.20
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - ./files/postgres:/var/lib/postgresql/data
+
   api:
     image: ${API_CONTAINER}:latest
     restart: unless-stopped
@@ -35,7 +44,7 @@ services:
     networks:
       - mb-platform   
     volumes:
-      - ./files/mn-api/out:/public/out:rw
+      - ./files/${API_CONTAINER}/out:/public/out:rw
 
   blog:
     image: ${BLOG_CONTAINER}:latest
@@ -45,7 +54,17 @@ services:
     networks:
       - mb-platform
     volumes:
-      - ./files/mn-blog/out:/public/out:rw
+      - ./files/${BLOG_CONTAINER}/out:/public/out:rw
+
+  nakeddiaries:
+    image: ${NAKEDDIARIES_CONTAINER}:latest
+    restart: unless-stopped
+    ports:
+      - "50003:50003"
+    networks:
+      - mb-platform
+    volumes:
+      - ./files/${NAKEDDIARIES_CONTAINER}/out:/public/out:rw
 
   www:
     image: ${WWW_CONTAINER}:latest
@@ -54,6 +73,8 @@ services:
       - "50002:50002"
     networks:
       - mb-platform
+    volumes:
+      - ./files/${WWW_CONTAINER}/out:/public/out:rw
 
 networks:
   mb-platform:

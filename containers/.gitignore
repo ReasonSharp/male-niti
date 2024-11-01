@@ -2,5 +2,7 @@
 !.gitignore
 !certbot
 !nginx
+!postgres
 !certbot/*
 !nginx/*
+!postgres/*

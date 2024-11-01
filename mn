@@ -9,41 +9,50 @@ fi
 PREFIX=mn
 API_FOLDER=api
 BLOG_FOLDER=blog
+NAKEDDIARIES_FOLDER=nakeddiaries
 WWW_FOLDER=www
 
 export API_CONTAINER=${PREFIX}-${API_FOLDER}
 export BLOG_CONTAINER=${PREFIX}-${BLOG_FOLDER}
+export NAKEDDIARIES_CONTAINER=${PREFIX}-${NAKEDDIARIES_FOLDER}
 export WWW_CONTAINER=${PREFIX}-${WWW_FOLDER}
 
 . ./env
 
-mkdir -p files/www/html
 mkdir -p files/config
+mkdir -p files/postgres
+
+# get DNS credentials
+cp "${DNS_CRED_FULL_PATH}" ./files/config/
+export DNS_CREDENTIALS=./files/config/$(basename "${DNS_CRED_FULL_PATH}")
 
 # bring old platform down; in the future this should be done with minimum downtime
 docker compose -p mb-platform -f docker-compose.yml down
 
 # setup configs and certs
-envsubst '${APP_SERVER_NAME},${WEB_SERVER_NAME}'  < "./containers/nginx/tlsoffloader.conf" > "./files/config/tlsoffloader.conf"
+envsubst '${APP_SERVER_NAME},${WEB_SERVER_NAME},${API_CONTAINER},${BLOG_CONTAINER},${NAKEDDIARIES_CONTAINER},${WWW_CONTAINER}' \
+         < "./containers/nginx/tlsoffloader.conf" > "./files/config/tlsoffloader.conf"
 export DOMAINS=(${ALL_DOMAINS})
-cp "${DNS_CRED_FULL_PATH}" ./files/config/
-export DNS_CREDENTIALS=./files/config/$(basename "${DNS_CRED_PATH}")
 # this safely runs or skips certbot depending on ${ENV}
 . "./containers/certbot/letsencrypt-init.sh"
 letsencrypt-init
 
 # at the moment, just clone everything, in the future enable checking out individually
 cd containers
-rm -rf "${API_FOLDER}" "${BLOG_FOLDER}" "${WWW_FOLDER}"
+rm -rf "${API_FOLDER}" "${BLOG_FOLDER}" "${WWW_FOLDER}" "${NAKEDDIARIES_FOLDER}"
 git clone git@github.com:ReasonSharp/male-niti-api.git "${API_FOLDER}"
 git clone git@github.com:ReasonSharp/male-niti-blog.git "${BLOG_FOLDER}"
+git clone git@github.com:ReasonSharp/male-niti-blog.git "${NAKEDDIARIES_FOLDER}"
 git clone git@github.com:ReasonSharp/male-niti-web.git "${WWW_FOLDER}"
 
 cd "${API_FOLDER}"
 docker build . -t ${API_CONTAINER}
 cd ..
 cd "${BLOG_FOLDER}"
-docker build . -t ${BLOG_CONTAINER}
+docker build --build-arg ENV=prod --build-arg PROJECT_NAME="Male Niti Blog" . -t ${BLOG_CONTAINER}
+cd ..
+cd "${NAKEDDIARIES_FOLDER}"
+docker build --build-arg ENV=prod --build-arg PROJECT_NAME="Naked Diaries" . -t ${NAKEDDIARIES_CONTAINER}
 cd ..
 cd "${WWW_FOLDER}"
 docker build . -t ${WWW_CONTAINER}
@@ -52,7 +61,7 @@ cd ../..
 docker compose -p mb-platform -f docker-compose.yml up -d
 
 # cleanup
-rm -rf ./containers/"${API_FOLDER}" ./containers/"${BLOG_FOLDER}" ./containers/"${WWW_FOLDER}"
+rm -rf ./containers/"${API_FOLDER}" ./containers/"${BLOG_FOLDER}" ./containers/"${NAKEDDIARIES_FOLDER}" ./containers/"${WWW_FOLDER}"
 docker system prune -a -f
 
 exit 0
