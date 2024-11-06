@@ -44,7 +44,7 @@ services:
     networks:
       - mb-platform   
     volumes:
-      - ./files/${API_CONTAINER}/out:/public/out:rw
+      - ./files/${API_CONTAINER}/out:/api:rw
 
   blog:
     image: ${BLOG_CONTAINER}:latest
@@ -75,6 +75,16 @@ services:
       - mb-platform
     volumes:
       - ./files/${WWW_CONTAINER}/out:/public/out:rw
+
+  dnh:
+    image: mn-dnh:latest
+    restart: unless-stopped
+    ports:
+      - "50004:50004"
+    networks:
+      - mb-platform
+    volumes:
+      - ./files/dnh-www/out:/public/out:rw
 
 networks:
   mb-platform:

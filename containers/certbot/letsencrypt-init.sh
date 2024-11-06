@@ -1,16 +1,16 @@
 #!/bin/bash
 
 letsencrypt-init() {
- DATA_PATH="./files/certificates"
- if [ ! -d "${DATA_PATH}" ]; then
-  if [ ! -e "${DATA_PATH}/conf/options-ssl-nginx.conf" ] || [ ! -e "${DATA_PATH}/conf/ssl-dhparams.pem" ]; then
-    echo "${0}: downloading recommended TLS parameters ..."
-    mkdir -p "${DATA_PATH}/conf"
-    curl -s https://raw.githubusercontent.com/certbot/certbot/master/certbot-nginx/certbot_nginx/_internal/tls_configs/options-ssl-nginx.conf > "${DATA_PATH}/conf/options-ssl-nginx.conf"
-    curl -s https://raw.githubusercontent.com/certbot/certbot/master/certbot/certbot/ssl-dhparams.pem > "${DATA_PATH}/conf/ssl-dhparams.pem"
-    echo
-  fi
-  
+ DATA_PATH="./files/${CERTFOLDER}"
+ if [ ! -e "${DATA_PATH}/conf/options-ssl-nginx.conf" ] || [ ! -e "${DATA_PATH}/conf/ssl-dhparams.pem" ]; then
+   echo "${0}: downloading recommended TLS parameters ..."
+   mkdir -p "${DATA_PATH}/conf"
+   curl -s https://raw.githubusercontent.com/certbot/certbot/master/certbot-nginx/certbot_nginx/_internal/tls_configs/options-ssl-nginx.conf > "${DATA_PATH}/conf/options-ssl-nginx.conf"
+   curl -s https://raw.githubusercontent.com/certbot/certbot/master/certbot/certbot/ssl-dhparams.pem > "${DATA_PATH}/conf/ssl-dhparams.pem"
+   echo
+ fi
+ 
+ if [ ! -d "${DATA_PATH}/conf/live/${DOMAINS}" ]; then
   echo "${0}: creating dummy certificate for ${DOMAINS} ..."
   CERT_PATH="/etc/letsencrypt/live/${DOMAINS}"
   mkdir -p "${DATA_PATH}/conf/live/${DOMAINS}"
@@ -60,10 +60,12 @@ letsencrypt-init() {
    
    echo "${0}: reloading nginx ..."
    docker compose -p mb-platform -f "./docker-compose.yml" exec tlsoffloader nginx -s reload
+
   else
    echo "${0}: not running certbot on ${ENV} environment"
   fi
+
  else
-  echo "${0}: '${DATA_PATH}' already exists; if you want new certificates, delete that path first"
+  echo "${0}: '${DATA_PATH}/conf/live/${DOMAINS}' already exists; if you want new certificates, delete that path first"
  fi
 }

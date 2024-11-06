@@ -33,6 +33,7 @@ docker compose -p mb-platform -f docker-compose.yml down
 envsubst '${APP_SERVER_NAME},${WEB_SERVER_NAME},${API_CONTAINER},${BLOG_CONTAINER},${NAKEDDIARIES_CONTAINER},${WWW_CONTAINER}' \
          < "./containers/nginx/tlsoffloader.conf" > "./files/config/tlsoffloader.conf"
 export DOMAINS=(${ALL_DOMAINS})
+export CERTFOLDER=certificates
 # this safely runs or skips certbot depending on ${ENV}
 . "./containers/certbot/letsencrypt-init.sh"
 letsencrypt-init
@@ -58,7 +59,21 @@ cd "${WWW_FOLDER}"
 docker build . -t ${WWW_CONTAINER}
 cd ../..
 
+# TEMPORARY setup for dnh.hr
+export DOMAINS=(dnh.hr *.dnh.hr)
+letsencrypt-init
+cd containers
+rm -rf dnh-www
+git clone git@github.com:ReasonSharp/dnh-web.git "dnh-www"
+cd dnh-www
+docker build . -t mn-dnh
+cd ../..
+
+# bring up platform
 docker compose -p mb-platform -f docker-compose.yml up -d
+
+# TEMPORARY cleanup of dnh.hr
+rm -rf ./containers/dnh-www
 
 # cleanup
 rm -rf ./containers/"${API_FOLDER}" ./containers/"${BLOG_FOLDER}" ./containers/"${NAKEDDIARIES_FOLDER}" ./containers/"${WWW_FOLDER}"
