@@ -1,0 +1,43 @@
+#!/bin/bash
+
+if [ ! -f ./env ]; then
+ envsubst < "./env.template" > "./env"
+ echo "env file created; edit it to configure the platform"
+ exit 0
+fi
+
+PREFIX=mn
+API_FOLDER=api
+BLOG_FOLDER=blog
+NAKEDDIARIES_FOLDER=nakeddiaries
+WWW_FOLDER=www
+
+export API_CONTAINER=${PREFIX}-${API_FOLDER}
+export BLOG_CONTAINER=${PREFIX}-${BLOG_FOLDER}
+export NAKEDDIARIES_CONTAINER=${PREFIX}-${NAKEDDIARIES_FOLDER}
+export WWW_CONTAINER=${PREFIX}-${WWW_FOLDER}
+
+. ./env
+
+mkdir -p files/config
+mkdir -p files/postgres
+
+# get DNS credentials
+cp "${DNS_CRED_FULL_PATH}" ./files/config/
+export DNS_CREDENTIALS=./files/config/$(basename "${DNS_CRED_FULL_PATH}")
+
+docker stop mb-platform-tlsoffloader-1
+
+# setup configs and certs
+envsubst '${APP_SERVER_NAME},${WEB_SERVER_NAME},${API_CONTAINER},${BLOG_CONTAINER},${NAKEDDIARIES_CONTAINER},${WWW_CONTAINER}' \
+         < "./containers/nginx/tlsoffloader.conf" > "./files/config/tlsoffloader.conf"
+export DOMAINS=(${ALL_DOMAINS})
+export CERTFOLDER=certificates
+# this safely runs or skips certbot depending on ${ENV}
+. "./containers/certbot/letsencrypt-init.sh"
+letsencrypt-init
+
+# bring up platform
+docker compose -p mb-platform -f docker-compose.yml up -d
+
+docker system prune -a -f

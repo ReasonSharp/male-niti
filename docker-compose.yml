@@ -80,11 +80,12 @@ services:
     image: mn-dnh:latest
     restart: unless-stopped
     ports:
-      - "50004:50004"
+      - "50004:80"
     networks:
       - mb-platform
     volumes:
       - ./files/dnh-www/out:/public/out:rw
+      - ./files/certificates/www:/var/www/certbot:rw
 
 networks:
   mb-platform:
