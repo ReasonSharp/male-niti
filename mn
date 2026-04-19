@@ -100,7 +100,6 @@ build-platform() {
 }
 
 rebuild-dnh() {
-	set -x
 	export DOMAINS=(dnh.hr *.dnh.hr)
 	letsencrypt-init
 	clone-or-pull git@github.com:ReasonSharp/dnh-web.git containers/dnh-www
