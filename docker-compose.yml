@@ -78,12 +78,11 @@ services:
 
   dnh:
     image: mn-dnh:latest
-    container_name: dnh-dev
     restart: unless-stopped
     ports:
       - "50004:80"
     networks:
-      - dnh
+      - mb-platform
     volumes:
       - ./files/dnh-www/out:/public/out:rw
       - ./files/certificates/www:/var/www/certbot:rw
@@ -96,7 +95,6 @@ services:
 
   dnhdb:
     image: mariadb:lts
-    container_name: dnhdb
     ports:
       - "50005:3306"
     environment:
@@ -107,12 +105,11 @@ services:
     volumes:
       - ./files/dnhdb:/var/lib/mysql:rw
     networks:
-      - dnh
+      - mb-platform
     restart: unless-stopped
 
 networks:
   mb-platform:
-  dnh:
 
 secrets:
   tlsoffloaderconf:
