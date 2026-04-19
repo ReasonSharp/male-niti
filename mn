@@ -5,6 +5,9 @@ if [ ! -f ./.env ]; then
 	immediateExit=1
 fi
 
+set -a
+. ./.env
+set +a
 envsubst < "./env.template" > "./.env"
 
 if [ "${immediateExit}" -eq 1 ]; then
@@ -12,9 +15,28 @@ if [ "${immediateExit}" -eq 1 ]; then
  exit 0
 fi
 
-set -a
-. ./.env
-set +a
+clone-or-pull() {
+ if [ -z "${1}" ] || [ -z "${2}" ]; then
+  echo "clone-or-pull: missing parameter"
+  exit 1
+ fi
+ link="${1}"
+ path="${2}"
+ branch="${3}"
+ if [ ! -d "./${path}" ]; then
+  if [ -z "${branch}" ]; then
+   git clone "${link}" "${path}"
+  else
+   git clone -b "${branch}" "${link}" "${path}"
+  fi
+ else
+ 	prevPath=`pwd`
+  cd "${path}"
+  echo -n "${path}: "
+  git pull
+  cd "${prevPath}"
+ fi
+}
 
 build-platform() {
  PREFIX=mn
@@ -77,11 +99,23 @@ build-platform() {
  docker system prune -a -f
 }
 
+rebuild-dnh() {
+	set -x
+	export DOMAINS=(dnh.hr *.dnh.hr)
+	letsencrypt-init
+	clone-or-pull git@github.com:ReasonSharp/dnh-web.git containers/dnh-www
+	cd containers/dnh-www
+	docker build . -t mn-dnh
+	cd ../..
+	docker compose -p mb-platform -f docker-compose.yml up -d dnhdb dnh
+}
+
 cmd="${1}"
 shift
 
 case "${cmd}" in
  build-platform) build-platform;;
+ rebuild-dnh)    rebuild-dnh;;
  *) echo "Usage: ${0} COMMAND [params]"
 esac
 

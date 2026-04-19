@@ -78,17 +78,41 @@ services:
 
   dnh:
     image: mn-dnh:latest
+    container_name: dnh-dev
     restart: unless-stopped
     ports:
       - "50004:80"
     networks:
-      - mb-platform
+      - dnh
     volumes:
       - ./files/dnh-www/out:/public/out:rw
       - ./files/certificates/www:/var/www/certbot:rw
+      - ./images:/usr/share/nginx/html/images:rw
+      - ./documents:/usr/share/nginx/html/documents:rw
+    env_file:
+      - ./containers/dnh-www/.env
+    depends_on:
+      - dnhdb
+
+  dnhdb:
+    image: mariadb:lts
+    container_name: dnhdb
+    ports:
+      - "50005:3306"
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DNH_DB_PASS}
+      MARIADB_DATABASE: dnh
+      MARIADB_USER: dnhapi
+      MARIADB_PASSWORD: ${DNH_API_DB_PASS}
+    volumes:
+      - ./files/dnhdb:/var/lib/mysql:rw
+    networks:
+      - dnh
+    restart: unless-stopped
 
 networks:
   mb-platform:
+  dnh:
 
 secrets:
   tlsoffloaderconf:
