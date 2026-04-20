@@ -106,7 +106,8 @@ rebuild-dnh() {
 	cd containers/dnh-www
 	docker build . -t mn-dnh
 	cd ../..
-	docker compose -p mb-platform -f docker-compose.yml up -d dnhdb dnh
+	docker compose -p mb-platform -f docker-compose.yml up -d dnhdb
+	docker compose -p mb-platform -f docker-compose.yml up -d dnh --force-recreate
 }
 
 cmd="${1}"
