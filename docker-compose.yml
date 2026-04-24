@@ -22,6 +22,8 @@ services:
     volumes:
       - ./files/certificates/conf:/etc/letsencrypt
       - ./files/certificates/www:/var/www/certbot
+    networks:
+      - mb-platform
     secrets:
       - source: certbotcredential
         target: /cred.json
@@ -33,6 +35,8 @@ services:
     environment:
       POSTGRES_PASSWORD: ${DB_PASS}
       PGDATA: /var/lib/postgresql/data/pgdata
+    networks:
+      - mb-platform
     volumes:
       - ./files/postgres:/var/lib/postgresql/data
 
