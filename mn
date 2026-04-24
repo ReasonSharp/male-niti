@@ -101,6 +101,7 @@ build-platform() {
 rebuild-dnh() {
 	export DOMAINS=(dnh.hr *.dnh.hr)
 	. "./containers/certbot/letsencrypt-init.sh"
+	export DOMAINS=(dnh.hr *.dnh.hr)
 	letsencrypt-init
 	clone-or-pull git@github.com:ReasonSharp/dnh-web.git containers/dnh-www
 	cd containers/dnh-www
