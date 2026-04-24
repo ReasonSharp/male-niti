@@ -95,12 +95,12 @@ build-platform() {
  # TEMPORARY cleanup of dnh.hr
  rm -rf ./containers/dnh-www
  # cleanup
- rm -rf ./containers/"${API_FOLDER}" ./containers/"${BLOG_FOLDER}" ./containers/"${NAKEDDIARIES_FOLDER}" ./containers/"${WWW_FOLDER}"
  docker system prune -a -f
 }
 
 rebuild-dnh() {
 	export DOMAINS=(dnh.hr *.dnh.hr)
+	. "./containers/certbot/letsencrypt-init.sh"
 	letsencrypt-init
 	clone-or-pull git@github.com:ReasonSharp/dnh-web.git containers/dnh-www
 	cd containers/dnh-www
