@@ -140,7 +140,10 @@ build-platform() {
  docker build . -t ${ADMIN_CONTAINER}
  cd ../..
  # setup configs and certs
- envsubst < "./containers/nginx/tlsoffloader.conf" > "./files/config/tlsoffloader.conf"
+ # not envsubst: the template has no ${...} placeholders, and nginx's own
+ # bare $variables (map, log_format, proxy_pass, ...) would get emptied out
+ # by envsubst substituting anything that isn't a real env var
+ cp "./containers/nginx/tlsoffloader.conf" "./files/config/tlsoffloader.conf"
  export DOMAINS=(${ALL_DOMAINS})
  export CERTFOLDER=certificates
  # this safely runs or skips certbot depending on ${ENV}
