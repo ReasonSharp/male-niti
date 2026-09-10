@@ -59,7 +59,7 @@ letsencrypt-init() {
    docker compose -p mb-platform -f "./docker-compose.yml" run --rm --entrypoint "\
      certbot certonly -w /var/www/certbot \
        --dns-google \
-       --dns-google-credentials /cred.json \
+       --dns-google-credentials ${DNS_CRED_CONTAINER_PATH:-/cred.json} \
        ${STAGING} \
        ${ADMIN_EMAIL_ARG} \
        ${DOMAIN_ARGS} \

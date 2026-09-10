@@ -27,6 +27,14 @@ else
  cp "${DNS_CRED_FULL_PATH}" ./files/config/
  export DNS_CREDENTIALS=./files/config/$(basename "${DNS_CRED_FULL_PATH}")
 fi
+# dnh.hr's DNS zone lives in a separate GCP project from the platform's own
+# domains, so it needs its own dns-google service account credentials
+if [ -z "${DNH_DNS_CRED_FULL_PATH}" ]; then
+	export DNH_DNS_CREDENTIALS=
+else
+ cp "${DNH_DNS_CRED_FULL_PATH}" "./files/config/dnh-$(basename "${DNH_DNS_CRED_FULL_PATH}")"
+ export DNH_DNS_CREDENTIALS=./files/config/dnh-$(basename "${DNH_DNS_CRED_FULL_PATH}")
+fi
 
 # platform-integration/{config.template,cfgloc} is a service repo's own
 # contract with whatever platform deploys it, not something this platform
@@ -158,8 +166,10 @@ build-platform() {
  # this safely runs or skips certbot depending on ${ENV}
  . "./containers/certbot/letsencrypt-init.sh"
  letsencrypt-init
- # TEMPORARY setup for dnh.hr
+ # TEMPORARY setup for dnh.hr - its DNS zone lives in a separate GCP project,
+ # so it needs its own dns-google credentials, not the platform's
  export DOMAINS=(dnh.hr *.dnh.hr)
+ export DNS_CRED_CONTAINER_PATH=/dnh-cred.json
  letsencrypt-init
  cd containers
  rm -rf dnh-www
@@ -181,6 +191,7 @@ rebuild-dnh() {
  export DOMAINS=(dnh.hr *.dnh.hr)
  . "./containers/certbot/letsencrypt-init.sh"
  export DOMAINS=(dnh.hr *.dnh.hr)
+ export DNS_CRED_CONTAINER_PATH=/dnh-cred.json
  letsencrypt-init
  clone-or-pull git@github.com:ReasonSharp/dnh-web.git containers/dnh-www
  cd containers/dnh-www

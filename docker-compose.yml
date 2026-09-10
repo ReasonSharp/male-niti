@@ -27,6 +27,8 @@ services:
     secrets:
       - source: certbotcredential
         target: /cred.json
+      - source: dnhcertbotcredential
+        target: /dnh-cred.json
     entrypoint: "/bin/sh -c 'trap exit TERM; while :; do date +\"%Y-%m-%d %H:%M:%S\"; certbot renew; sleep 12h & wait $${!}; done;'"
 
   db:
@@ -120,5 +122,7 @@ secrets:
     file: "./files/config/mysql-root-pass.txt"
   certbotcredential:
     file: "${DNS_CREDENTIALS}"
+  dnhcertbotcredential:
+    file: "${DNH_DNS_CREDENTIALS}"
   postgrepass:
     file: "./files/config/postgre-pass.txt"
