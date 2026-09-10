@@ -7,12 +7,12 @@ letsencrypt-init() {
  if [ ! -s "${DATA_PATH}/conf/options-ssl-nginx.conf" ] || [ ! -s "${DATA_PATH}/conf/ssl-dhparams.pem" ]; then
    echo "${0}: downloading recommended TLS parameters ..."
    mkdir -p "${DATA_PATH}/conf"
-   if ! curl -fsS https://raw.githubusercontent.com/certbot/certbot/master/certbot-nginx/certbot_nginx/_internal/tls_configs/options-ssl-nginx.conf > "${DATA_PATH}/conf/options-ssl-nginx.conf"; then
+   if ! curl -fsS https://raw.githubusercontent.com/certbot/certbot/main/certbot/src/certbot/_internal/plugins/nginx/tls_configs/options-ssl-nginx.conf > "${DATA_PATH}/conf/options-ssl-nginx.conf"; then
     echo "${0}: failed to download options-ssl-nginx.conf" >&2
     rm -f "${DATA_PATH}/conf/options-ssl-nginx.conf"
     exit 1
    fi
-   if ! curl -fsS https://raw.githubusercontent.com/certbot/certbot/master/certbot/certbot/ssl-dhparams.pem > "${DATA_PATH}/conf/ssl-dhparams.pem"; then
+   if ! curl -fsS https://raw.githubusercontent.com/certbot/certbot/main/certbot/src/certbot/ssl-dhparams.pem > "${DATA_PATH}/conf/ssl-dhparams.pem"; then
     echo "${0}: failed to download ssl-dhparams.pem" >&2
     rm -f "${DATA_PATH}/conf/ssl-dhparams.pem"
     exit 1
