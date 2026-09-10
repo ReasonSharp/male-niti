@@ -2,18 +2,57 @@
 
 immediateExit=0
 if [ ! -f ./.env ]; then
-	immediateExit=1
+ immediateExit=1
 fi
 
-set -a
-. ./.env
-set +a
+set -a && . ./.env && set +a
 envsubst < "./env.template" > "./.env"
 
 if [ "${immediateExit}" -eq 1 ]; then
  echo ".env file created; edit it to configure the platform"
  exit 0
 fi
+
+PREFIX=mn
+API_FOLDER=api
+WWW_FOLDER=www
+ADMIN_FOLDER=admin
+export API_CONTAINER=${PREFIX}-${API_FOLDER}
+export WWW_CONTAINER=${PREFIX}-${WWW_FOLDER}
+export ADMIN_CONTAINER=${PREFIX}-${ADMIN_FOLDER}
+if [ -z "${DNS_CRED_FULL_PATH}" ]; then
+	export DNS_CREDENTIALS=
+else
+ cp "${DNS_CRED_FULL_PATH}" ./files/config/
+ export DNS_CREDENTIALS=./files/config/$(basename "${DNS_CRED_FULL_PATH}")
+fi
+
+# platform-integration/{config.template,cfgloc} is a service repo's own
+# contract with whatever platform deploys it, not something this platform
+# owns - config.template is filled in from this platform's .env vars via
+# envsubst, cfgloc is the single-line in-container path to bind-mount the
+# result to. Renders into files/config/<folder>/ and exports
+# <PREFIX>_CFG_SRC / <PREFIX>_CFG_DST for docker-compose.yml to bind-mount.
+# Services whose repo doesn't provide a platform-integration/ folder are
+# left alone. Call again after clone-or-pull so a freshly pulled contract
+# takes effect immediately, not just on the next unrelated mn invocation.
+deliver-config() {
+ folder="${1}"
+ varprefix="${2}"
+ tmpl="containers/${folder}/platform-integration/config.template"
+ cfgloc="containers/${folder}/platform-integration/cfgloc"
+ if [ ! -f "${tmpl}" ] || [ ! -f "${cfgloc}" ]; then
+  return
+ fi
+ dst=$(cat "${cfgloc}")
+ mkdir -p "files/config/${folder}"
+ src="files/config/${folder}/$(basename "${dst}")"
+ envsubst < "${tmpl}" > "${src}"
+ export "${varprefix}_CFG_SRC"="./${src}"
+ export "${varprefix}_CFG_DST"="${dst}"
+}
+
+deliver-config "${API_FOLDER}" API
 
 clone-or-pull() {
  if [ -z "${1}" ] || [ -z "${2}" ]; then
@@ -38,21 +77,45 @@ clone-or-pull() {
  fi
 }
 
+# Brings up the db container and, if it hasn't been initialized yet, loads
+# containers/postgres/UP_001_20260723.sql into it. Safe to run repeatedly:
+# if the schema is already present it is left as-is.
+init-db() {
+ docker compose -p mb-platform -f docker-compose.yml up -d db
+
+ echo -n "${0}: waiting for db to accept connections"
+ tries=0
+ until docker compose -p mb-platform -f docker-compose.yml exec -T db pg_isready -U postgres >/dev/null 2>&1; do
+  echo -n "."
+  tries=$((tries + 1))
+  if [ "${tries}" -ge 60 ]; then
+   echo " timed out"
+   exit 1
+  fi
+  sleep 1
+ done
+ echo " ready"
+
+ # POSTGRES_PASSWORD only takes effect on first-time initdb, so on a data
+ # dir that predates this container (or ${DB_PASS} changing since) the
+ # actual role password can drift from .env. Keep it in sync on every run,
+ # using the trusted local socket connection rather than the (possibly
+ # stale) password itself.
+ docker compose -p mb-platform -f docker-compose.yml exec -T db psql -U postgres -c "ALTER USER postgres WITH PASSWORD '${DB_PASS}';" >/dev/null
+
+ initialized=$(docker compose -p mb-platform -f docker-compose.yml exec -T db psql -U postgres -tAc "SELECT to_regclass('public.services')")
+ if [ -n "${initialized}" ]; then
+  echo "${0}: db already initialized, leaving as-is"
+  return
+ fi
+
+ echo "${0}: initializing db from containers/postgres/UP_001_20260723.sql"
+ docker compose -p mb-platform -f docker-compose.yml exec -T db psql -U postgres < ./containers/postgres/UP_001_20260723.sql
+}
+
 build-platform() {
- PREFIX=mn
- API_FOLDER=api
- BLOG_FOLDER=blog
- NAKEDDIARIES_FOLDER=nakeddiaries
- WWW_FOLDER=www
- export API_CONTAINER=${PREFIX}-${API_FOLDER}
- export BLOG_CONTAINER=${PREFIX}-${BLOG_FOLDER}
- export NAKEDDIARIES_CONTAINER=${PREFIX}-${NAKEDDIARIES_FOLDER}
- export WWW_CONTAINER=${PREFIX}-${WWW_FOLDER}
  mkdir -p files/config
  mkdir -p files/postgres
- # get DNS credentials
- cp "${DNS_CRED_FULL_PATH}" ./files/config/
- export DNS_CREDENTIALS=./files/config/$(basename "${DNS_CRED_FULL_PATH}")
  # bring old platform down; in the future this should be done with minimum downtime
  docker compose -p mb-platform -f docker-compose.yml down
  # setup configs and certs
@@ -64,22 +127,20 @@ build-platform() {
  letsencrypt-init
  # at the moment, just clone everything, in the future enable checking out individually
  cd containers
- rm -rf "${API_FOLDER}" "${BLOG_FOLDER}" "${WWW_FOLDER}" "${NAKEDDIARIES_FOLDER}"
+ rm -rf "${API_FOLDER}" "${WWW_FOLDER}" "${ADMIN_FOLDER}"
  git clone git@github.com:ReasonSharp/male-niti-api.git "${API_FOLDER}"
- git clone git@github.com:ReasonSharp/male-niti-blog.git "${BLOG_FOLDER}"
- git clone git@github.com:ReasonSharp/male-niti-blog.git "${NAKEDDIARIES_FOLDER}"
  git clone git@github.com:ReasonSharp/male-niti-web.git "${WWW_FOLDER}"
- cd "${API_FOLDER}"
+ git clone git@github.com:ReasonSharp/male-niti-admin.git "${ADMIN_FOLDER}"
+ cd ..
+ deliver-config "${API_FOLDER}" API
+ deliver-config "${WWW_FOLDER}" WWW
+ deliver-config "${ADMIN_FOLDER}" ADMIN
+ cd "containers/${API_FOLDER}"
  docker build . -t ${API_CONTAINER}
- cd ..
- cd "${BLOG_FOLDER}"
- docker build --build-arg ENV=${ENV} --build-arg PROJECT_NAME="Male Niti Blog" . -t ${BLOG_CONTAINER}
- cd ..
- cd "${NAKEDDIARIES_FOLDER}"
- docker build --build-arg ENV=${ENV} --build-arg PROJECT_NAME="Naked Diaries" . -t ${NAKEDDIARIES_CONTAINER}
- cd ..
- cd "${WWW_FOLDER}"
+ cd "../${WWW_FOLDER}"
  docker build . -t ${WWW_CONTAINER}
+ cd "../${ADMIN_FOLDER}"
+ docker build . -t ${ADMIN_CONTAINER}
  cd ../..
  # TEMPORARY setup for dnh.hr
  export DOMAINS=(dnh.hr *.dnh.hr)
@@ -92,6 +153,7 @@ build-platform() {
  cd ../..
  # bring up platform
  docker compose -p mb-platform -f docker-compose.yml up -d
+ init-db
  # TEMPORARY cleanup of dnh.hr
  rm -rf ./containers/dnh-www
  # cleanup
@@ -99,16 +161,107 @@ build-platform() {
 }
 
 rebuild-dnh() {
-	export DOMAINS=(dnh.hr *.dnh.hr)
-	. "./containers/certbot/letsencrypt-init.sh"
-	export DOMAINS=(dnh.hr *.dnh.hr)
-	letsencrypt-init
-	clone-or-pull git@github.com:ReasonSharp/dnh-web.git containers/dnh-www
-	cd containers/dnh-www
-	docker build . -t mn-dnh
-	cd ../..
-	docker compose -p mb-platform -f docker-compose.yml up -d dnhdb
-	docker compose -p mb-platform -f docker-compose.yml up -d dnh --force-recreate
+ export DOMAINS=(dnh.hr *.dnh.hr)
+ . "./containers/certbot/letsencrypt-init.sh"
+ export DOMAINS=(dnh.hr *.dnh.hr)
+ letsencrypt-init
+ clone-or-pull git@github.com:ReasonSharp/dnh-web.git containers/dnh-www
+ cd containers/dnh-www
+ docker build . -t mn-dnh
+ cd ../..
+ docker compose -p mb-platform -f docker-compose.yml up -d dnhdb
+ docker compose -p mb-platform -f docker-compose.yml up -d dnh --force-recreate
+}
+
+update-one() {
+ service="${1}"
+ force="${2}"
+
+ if [ "${service}" = "db" ]; then
+  init-db
+  return
+ fi
+
+ case "${service}" in
+  api)
+   folder="${API_FOLDER}"
+   image="${API_CONTAINER}"
+   repo="git@github.com:ReasonSharp/male-niti-api.git"
+   build_args=()
+   ;;
+  www)
+   folder="${WWW_FOLDER}"
+   image="${WWW_CONTAINER}"
+   repo="git@github.com:ReasonSharp/male-niti-web.git"
+   build_args=()
+   ;;
+  admin)
+   folder="${ADMIN_FOLDER}"
+   image="${ADMIN_CONTAINER}"
+   repo="git@github.com:ReasonSharp/male-niti-admin.git"
+   build_args=()
+   ;;
+  dnh)
+   folder="dnh-www"
+   image="mn-dnh"
+   repo="git@github.com:ReasonSharp/dnh-web.git"
+   build_args=()
+   ;;
+  *)
+   echo "usage: ${0} update [-f] { api | www | admin | dnh | db }"
+   exit 1
+   ;;
+ esac
+
+ cd containers
+ before=""
+ if [ -d "${folder}" ]; then
+  before=$(git -C "${folder}" rev-parse HEAD)
+ fi
+ clone-or-pull "${repo}" "${folder}"
+ after=$(git -C "${folder}" rev-parse HEAD)
+ cd ..
+
+ deliver-config "${folder}" "$(printf '%s' "${service}" | tr '[:lower:]' '[:upper:]')"
+
+ if [ "${force}" -eq 1 ] || [ "${before}" != "${after}" ] || [ -z "$(docker images -q "${image}" 2>/dev/null)" ]; then
+  cd "containers/${folder}"
+  docker build "${build_args[@]}" . -t "${image}"
+  cd ../..
+ else
+  echo "${0}: ${service} unchanged, skipping rebuild"
+ fi
+
+ docker compose -p mb-platform -f docker-compose.yml up -d "${service}" --force-recreate
+}
+
+update() {
+ force=0
+ if [ "${1}" = "-f" ]; then
+  force=1
+  shift
+ fi
+
+ if [ "${#}" -eq 0 ]; then
+  echo "usage: ${0} update [-f] <service [service [service...]]>"
+  exit 1
+ fi
+
+ for service in "${@}"; do
+  update-one "${service}" "${force}"
+ done
+}
+
+list-platform-containers() {
+	docker compose -p mb-platform -f docker-compose.yml ps ${@}
+}
+
+logs() {
+	docker compose -p mb-platform -f docker-compose.yml logs ${@}
+}
+
+exec() {
+	docker compose -p mb-platform -f docker-compose.yml exec -it ${@}
 }
 
 cmd="${1}"
@@ -117,321 +270,10 @@ shift
 case "${cmd}" in
  build-platform) build-platform;;
  rebuild-dnh)    rebuild-dnh;;
+ update)         update "${@}";;
+ ps)             list-platform-containers "${@}";;
+ logs)           logs "${@}";;
+ exec)           exec "${@}";;
  *) echo "Usage: ${0} COMMAND [params]"
 esac
 
-exit 0
-
-export NGINX_VERSION=1.23.3
-export CERTBOT_VERSION=v2.6.0
-export NODE_VERSION=20.7.0-alpine3.17
-
-## Submodules
-SUBMODULES_FOLDER="./subs"
-
-MODS=("WWW" "API")
-
-declare -A MODDATA
-
-MODDATA[WWW,REPO]="git@github.com:ReasonSharp/male-niti-web.git"
-MODDATA[WWW,COMMIT]="147591449a990574e3f62023650a33bbc51d4f1b"
-MODDATA[WWW,FOLDER]="male-niti-web"
-MODDATA[WWW,BRANCH]="main"
-
-MODDATA[API,REPO]="git@github.com:ReasonSharp/male-niti-api.git"
-MODDATA[API,COMMIT]="da39fa6c1933dbdf9a44645417f9138e0142761e"
-MODDATA[API,FOLDER]="male-niti-api"
-MODDATA[API,BRANCH]="main"
-
-verify-env() {
- [ -z "${1}" ] || [ ! "${1}" = "dev" ] && [ ! "${1}" = "test" ] && [ ! "${1}" = "stage" ] && [ ! "${1}" = "prod" ]
-}
-fn-exists() {
- declare -F "${1}" > /dev/null
-}
-rm-container() {
- if [ $# -ne 0 ]; then
-  CONTAINER="${1}"
-  if docker ps -a --format '{{.Names}}' | grep -q "${CONTAINER}"; then
-   docker rm ${CONTAINER}
-  fi
- fi
-}
-rm-image() {
- if [ $# -ne 0 ]; then 
-  IMAGE="${1}"
-  IMAGE_EXISTS=$(docker images -q "${IMAGE}" 2>/dev/null)
-  if [ -n "${IMAGE_EXISTS}" ]; then
-   docker rmi ${IMAGE}
-  fi
- fi
-}
-
-unset ENV
-export MSYS_NO_PATHCONV=1
-
-[[ -f "./env.sh"      ]]                       && source "./env.sh"
-[[ -z ${ENV} ]] && [ "${1}" != "prepare-env" ] && echo "${0}: missing or invalid env.sh; run: '${0} prepare-env { dev | test | stage | prod }'" && exit 1
-[[ -f "./env-${ENV}.sh" ]]                     && source "./env-${ENV}.sh"
-
-prepare-env() {
- if verify-env "${1}"; then
-  echo "usage: '${0} prepare-env { dev | test | stage | prod }"
-  exit 1
- fi
- envsubst < "./env.template" > "./env-${1}.sh"
- printf "%s\n" "#!/bin/bash" "" "export ENV=${1}" > "./env.sh"
- echo "${0}: check file './env-${1}.sh', then run '${0} write-configs'"
-}
-write-configs() {
- echo     "${0}: configuring infrastructure"
- mkdir -p "./files/config"
- cp       "./config/certbot/${DNS_CREDENTIALS}.json" "./files/config/${DNS_CREDENTIALS}.json"
- envsubst '${APP_SERVER_NAME},${WEB_SERVER_NAME}'  < "./config/tlsoffloader/tlsoffloader.conf" > "./files/config/tlsoffloader.conf"
-
- echo     "${0}: configuring API"
- echo     "MNAPI_OUTDIR=${MNAPI_OUTDIR}"                                                       > "${SUBMODULES_FOLDER}/${MODDATA["API,FOLDER"]}/.env"
-}
-
-
-
-### CONTAINER MANIPULATION ###
-
-infra() {
- if fn-exists infra-"${1}"; then
-  infra-"${1}" "${2}"
- else
-  echo
-  echo "usage: ${0} infra [param]"
-  echo
-  echo "PARAMS:"
-  echo
-  echo " --------------------------------------------------------------------------------------------------"
-  echo "  run                      | creates and runs infrastructure containers"
-  echo "  logs [LINES] [CONTAINER] | shows last [LINES] lines of [CONTAINER]'s logs, or all by default"
-  echo "  stop                     | stops and removes infrastructure containers"
-  echo "  recreate                 | stops and removes infrastructure containers, then runs them anew"
-  echo " --------------------------------------------------------------------------------------------------"
-  echo
- fi
-}
-infra-run() {
- docker compose -p mb-platform -f docker-compose-infra-v2.yml up -d
-}
-infra-logs() {
- if [[ -z "${1}" ]]; then LINES=all; else LINES="${1}"; fi
- if [[ ! -z "${2}" ]]; then CONTAINER="${2}"; fi
- docker compose -p mb-platform -f docker-compose-infra-v2.yml logs -f -t --tail "${LINES}" ${CONTAINER}
-}
-infra-stop() {
- docker compose -p mb-platform -f docker-compose-infra-v2.yml down
-}
-infra-recreate() {
- infra-stop
- infra-run
-}
-
-api() {
- if fn-exists api-"${1}"; then
-  api-"${1}" "${2}"
- else
-  echo
-  echo "usage: ${0} api [param]"
-  echo
-  echo "PARAMS:"
-  echo
-  echo " --------------------------------------------------------------------------------------------------"
-  echo "  build           | builds the api"
-  echo "  run             | creates and runs the mnapi container"
-  echo "  logs [LINES]    | shows last [LINES] lines of container's logs, or all by default"
-  echo "  stop            | stops and removes the container"
-  echo "  rm              | removes the api container"
-  echo "  rmi             | removes the api image"
-  echo "  recreate        | stops and removes the container, then runs it anew"
-  echo " --------------------------------------------------------------------------------------------------"
-  echo
- fi
-}
-api-build() {
- CDIR=`pwd`
- cd "${SUBMODULES_FOLDER}/${MODDATA["API,FOLDER"]}"
- docker build -t mnapi:latest --build-arg ENV=${ENV} .
- cd "${CDIR}"
-}
-api-run() {
- docker compose -p mb-platform -f docker-compose-infra-v2.yml up -d --no-recreate mnapi
-}
-api-logs() {
- if [[ -z "${1}" ]]; then LINES=all; else LINES="${1}"; fi
- docker compose -p mb-platform -f docker-compose-infra-v2.yml logs -f -t --tail "${LINES}" mnapi
-}
-api-stop() {
- docker compose -p mb-platform -f docker-compose-infra-v2.yml stop mnapi
- docker compose -p mb-platform -f docker-compose-infra-v2.yml rm -f mnapi
-}
-api-rm() {
- rm-container mnapi
-}
-api-rmi() {
- rm-image mnapi
-}
-api-recreate() {
- api-stop
- api-rm
- api-rmi
- api-build
- api-run
-}
-
-www() {
- if fn-exists www-"${1}"; then
-  www-"${1}" "${2}"
- else
-  echo
-  echo "usage: ${0} www [param]"
-  echo
-  echo "PARAMS:"
-  echo
-  echo " --------------------------------------------------------------------------------------------------"
-  echo "  build           | builds the www"
-  echo "  rmi             | removes the www image"
-  echo "  recreate        | removes the image, then builds it anew"
-  echo " --------------------------------------------------------------------------------------------------"
-  echo
- fi
-}
-www-build() {
- CDIR=`pwd`
- cd "${SUBMODULES_FOLDER}/${MODDATA["WWW,FOLDER"]}"
- docker build -t mnapi:latest --build-arg ENV=${ENV} .
- cd "${CDIR}"
- docker run --rm -v "./files/www:/www:rw" mnapi:latest //bin/sh -c "cp -r /usr/share/nginx/html /www"
-}
-www-rmi() {
- rm-image mnapi
-}
-www-recreate() {
- www-rmi
- www-build
-}
-
-### PLATFORM MANIPULATION ###
-
-up() {
- if [ -d "${SUBMODULES_FOLDER}" ]; then
-  rm -rf "${SUBMODULES_FOLDER}"
- fi
- export DOMAINS=(${ALL_DOMAINS})
- CDIR=`pwd`
-
- mkdir -p "${SUBMODULES_FOLDER}"
- cd "${SUBMODULES_FOLDER}"
- SUBDIR=`pwd`
-
- # clone specific submodule versions
- for MOD in "${MODS[@]}"; do
-  echo $MOD
-  REPO="${MODDATA["${MOD},REPO"]}"
-  COMMIT="${MODDATA["${MOD},COMMIT"]}"
-  FOLDER="${MODDATA["${MOD},FOLDER"]}"
-  git clone "${REPO}"
-  cd "${FOLDER}"
-  git reset --hard "${COMMIT}"
-  cd "${SUBDIR}"
- done
-
- cd "${CDIR}"
-
- . "./scripts/letsencrypt/letsencrypt-init.sh"
- write-configs
- letsencrypt-init
- api-recreate
- www-build
- infra-run
-
- # remove submodules
- rm -rf "${SUBMODULES_FOLDER}"
-}
-down() {
- FULL=0
- VOL=0
- if [ "${1}" = "--full" ]; then
-  FULL=1
- elif [ "${1}" = "--vol" ]; then
-  VOL=1
- fi
- if [ "${2}" = "--full" ]; then
-  FULL=1
- elif [ "${2}" = "--vol" ]; then
-  VOL=1
- fi
- if [ "${ENV}" = "dev" ] || [ "${ENV}" = "test" ]; then
-  if [[ "${FULL}" -eq 1 ]]; then
-   rm -f ./env*.sh
-  fi
-  infra-stop
-  VOL_PARAM=
-  if [[ "${VOL}" -eq 1 ]]; then
-   VOL_PARAM="--volumes"
-  fi
-  rm -f ./config/tlsoffloader/tlsoffloader-*.conf
-  preserve-images
-  docker system prune -a ${VOL_PARAM} -f
-  release-images
-  if [[ "${VOL}" -eq 1 ]]; then
-   rm -rf ./files
-  fi
- else
-  echo "${0}: refusing to reset ${ENV} environment"
-  exit 1
- fi
-}
-upgrade() {
- echo "${0}: not implemented"
- exit 1
- #echo "${0}: upgrading v1 -> v2"
- #write-configs
- #api-recreate
- #infra-run
-}
-reset() {
- down ${@}
- up
-}
-
-CMD=${1}
-shift
-
-case "${CMD}" in
- prepare-env)    prepare-env ${@};;
- write-configs)  write-configs;;
- upgrade)        upgrade;;
- reset)          reset ${@};;
- up)             up;;
- down)           down ${@};;
- api)            api ${@};;
- infra)          infra ${@};;
- www)            www ${@};;
- *)
-  echo
-  echo "usage: ${0} {command} [parameters]"
-  echo
-  echo "COMMANDS:"
-  echo
-  echo " ---------------------------------------------------------------------------------------------"
-  echo "  prepare-env [param]    | prepares [param] environment, where [param] is dev|test|stage|prod"
-  echo "  write-configs          | writes configuration files based on values in env-[ENV].sh script"
-  echo " ---------------------------------------------------------------------------------------------"
-  echo "  upgrade                | upgrades the platform to the current version; previous version"
-  echo "                         | needs to be running, this is for upgrading prod"
-  echo "  down [--full] [--vol]  | resets the environment - development or test only!"
-  echo "  up                     | brings the environment up from scratch, doesn't run in prod, stage"
-  echo "  reset [--full] [--vol] | brings the environment down, then back up"
-  echo " ---------------------------------------------------------------------------------------------"
-  echo "  infra [param]          | manipulates the infrastructure containers"
-  echo " ---------------------------------------------------------------------------------------------"
-  echo "  api [param]            | manipulates the mnapi container"
-  echo "  www [param]            | manipulates the website container"
-  echo " ---------------------------------------------------------------------------------------------"
-  echo
-esac

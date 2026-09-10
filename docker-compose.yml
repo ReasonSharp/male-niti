@@ -46,29 +46,24 @@ services:
     ports:
       - "50000:50000"
     networks:
-      - mb-platform   
+      - mb-platform
     volumes:
-      - ./files/${API_CONTAINER}/out:/api:rw
+      - ./files/${API_CONTAINER}/out:/public/out:rw
+      - ${API_CFG_SRC}:${API_CFG_DST}:ro
+    depends_on:
+      - db
 
-  blog:
-    image: ${BLOG_CONTAINER}:latest
+  admin:
+    image: ${ADMIN_CONTAINER}:latest
     restart: unless-stopped
     ports:
-      - "50001:50001"
+      - "50006:50006"
     networks:
       - mb-platform
     volumes:
-      - ./files/${BLOG_CONTAINER}/out:/public/out:rw
-
-  nakeddiaries:
-    image: ${NAKEDDIARIES_CONTAINER}:latest
-    restart: unless-stopped
-    ports:
-      - "50003:50003"
-    networks:
-      - mb-platform
-    volumes:
-      - ./files/${NAKEDDIARIES_CONTAINER}/out:/public/out:rw
+      - ./files/${ADMIN_CONTAINER}/out:/public/out:rw
+    depends_on:
+      - db
 
   www:
     image: ${WWW_CONTAINER}:latest
@@ -77,8 +72,11 @@ services:
       - "50002:50002"
     networks:
       - mb-platform
-    volumes:
-      - ./files/${WWW_CONTAINER}/out:/public/out:rw
+    environment:
+      PORT: "50002"
+      MALE_NITI_API_PROXY: http://api:50000
+    depends_on:
+      - api
 
   dnh:
     image: mn-dnh:latest
