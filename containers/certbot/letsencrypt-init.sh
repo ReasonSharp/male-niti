@@ -2,11 +2,21 @@
 
 letsencrypt-init() {
  DATA_PATH="./files/${CERTFOLDER}"
- if [ ! -e "${DATA_PATH}/conf/options-ssl-nginx.conf" ] || [ ! -e "${DATA_PATH}/conf/ssl-dhparams.pem" ]; then
+ # -s (non-empty), not just -e: a failed curl below still creates the file via
+ # the redirect, and an existence-only check would never retry a corrupt one
+ if [ ! -s "${DATA_PATH}/conf/options-ssl-nginx.conf" ] || [ ! -s "${DATA_PATH}/conf/ssl-dhparams.pem" ]; then
    echo "${0}: downloading recommended TLS parameters ..."
    mkdir -p "${DATA_PATH}/conf"
-   curl -s https://raw.githubusercontent.com/certbot/certbot/master/certbot-nginx/certbot_nginx/_internal/tls_configs/options-ssl-nginx.conf > "${DATA_PATH}/conf/options-ssl-nginx.conf"
-   curl -s https://raw.githubusercontent.com/certbot/certbot/master/certbot/certbot/ssl-dhparams.pem > "${DATA_PATH}/conf/ssl-dhparams.pem"
+   if ! curl -fsS https://raw.githubusercontent.com/certbot/certbot/master/certbot-nginx/certbot_nginx/_internal/tls_configs/options-ssl-nginx.conf > "${DATA_PATH}/conf/options-ssl-nginx.conf"; then
+    echo "${0}: failed to download options-ssl-nginx.conf" >&2
+    rm -f "${DATA_PATH}/conf/options-ssl-nginx.conf"
+    exit 1
+   fi
+   if ! curl -fsS https://raw.githubusercontent.com/certbot/certbot/master/certbot/certbot/ssl-dhparams.pem > "${DATA_PATH}/conf/ssl-dhparams.pem"; then
+    echo "${0}: failed to download ssl-dhparams.pem" >&2
+    rm -f "${DATA_PATH}/conf/ssl-dhparams.pem"
+    exit 1
+   fi
    echo
  fi
  
