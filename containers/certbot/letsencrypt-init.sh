@@ -65,6 +65,8 @@ letsencrypt-init() {
        ${DOMAIN_ARGS} \
        --rsa-key-size ${RSA_KEY_SIZ} \
        --agree-tos \
+       --non-interactive \
+       --no-eff-email \
        --force-renewal" certbot
    echo
    
