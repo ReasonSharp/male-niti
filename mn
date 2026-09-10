@@ -211,6 +211,13 @@ update-one() {
   return
  fi
 
+ if [ "${service}" = "tlsoffloader" ]; then
+  # static config, not a cloned/built service - just reload it
+  cp "./containers/nginx/tlsoffloader.conf" "./files/config/tlsoffloader.conf"
+  docker compose -p mb-platform -f docker-compose.yml up -d tlsoffloader --force-recreate
+  return
+ fi
+
  case "${service}" in
   api)
    folder="${API_FOLDER}"
@@ -237,7 +244,7 @@ update-one() {
    build_args=()
    ;;
   *)
-   echo "usage: ${0} update [-f] { api | www | admin | dnh | db }"
+   echo "usage: ${0} update [-f] { api | www | admin | dnh | db | tlsoffloader }"
    exit 1
    ;;
  esac
