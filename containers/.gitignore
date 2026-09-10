@@ -6,3 +6,4 @@
 !certbot/*
 !nginx/*
 !postgres/*
+!dnh-www.env.template

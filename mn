@@ -53,6 +53,15 @@ deliver-config() {
  export "${varprefix}_CFG_DST"="${dst}"
 }
 
+# dnh-web is a bolted-on site, not one of this platform's own services, so
+# it has no platform-integration/ contract of its own; render its .env
+# straight from a template this repo owns, since the mariadb creds it needs
+# already live in this platform's .env. Must run after every (re)clone of
+# dnh-www and before anything brings the dnh container up.
+deliver-dnh-config() {
+ envsubst < "containers/dnh-www.env.template" > "containers/dnh-www/.env"
+}
+
 deliver-config "${API_FOLDER}" API
 
 clone-or-pull() {
@@ -158,6 +167,7 @@ build-platform() {
  cd dnh-www
  docker build . -t mn-dnh
  cd ../..
+ deliver-dnh-config
  # bring up platform
  docker compose -p mb-platform -f docker-compose.yml up -d
  init-db
@@ -176,6 +186,7 @@ rebuild-dnh() {
  cd containers/dnh-www
  docker build . -t mn-dnh
  cd ../..
+ deliver-dnh-config
  docker compose -p mb-platform -f docker-compose.yml up -d dnhdb
  docker compose -p mb-platform -f docker-compose.yml up -d dnh --force-recreate
 }
@@ -230,6 +241,9 @@ update-one() {
  cd ..
 
  deliver-config "${folder}" "$(printf '%s' "${service}" | tr '[:lower:]' '[:upper:]')"
+ if [ "${service}" = "dnh" ]; then
+  deliver-dnh-config
+ fi
 
  if [ "${force}" -eq 1 ] || [ "${before}" != "${after}" ] || [ -z "$(docker images -q "${image}" 2>/dev/null)" ]; then
   cd "containers/${folder}"
