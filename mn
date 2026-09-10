@@ -20,6 +20,7 @@ ADMIN_FOLDER=admin
 export API_CONTAINER=${PREFIX}-${API_FOLDER}
 export WWW_CONTAINER=${PREFIX}-${WWW_FOLDER}
 export ADMIN_CONTAINER=${PREFIX}-${ADMIN_FOLDER}
+mkdir -p ./files/config
 if [ -z "${DNS_CRED_FULL_PATH}" ]; then
 	export DNS_CREDENTIALS=
 else
@@ -118,14 +119,10 @@ build-platform() {
  mkdir -p files/postgres
  # bring old platform down; in the future this should be done with minimum downtime
  docker compose -p mb-platform -f docker-compose.yml down
- # setup configs and certs
- envsubst < "./containers/nginx/tlsoffloader.conf" > "./files/config/tlsoffloader.conf"
- export DOMAINS=(${ALL_DOMAINS})
- export CERTFOLDER=certificates
- # this safely runs or skips certbot depending on ${ENV}
- . "./containers/certbot/letsencrypt-init.sh"
- letsencrypt-init
  # at the moment, just clone everything, in the future enable checking out individually
+ # this has to happen before any docker compose invocation below: docker-compose.yml
+ # references ${API_CFG_SRC}/${API_CFG_DST} unconditionally, and an empty value makes
+ # every service's volume spec invalid, not just api's
  cd containers
  rm -rf "${API_FOLDER}" "${WWW_FOLDER}" "${ADMIN_FOLDER}"
  git clone git@github.com:ReasonSharp/male-niti-api.git "${API_FOLDER}"
@@ -142,6 +139,13 @@ build-platform() {
  cd "../${ADMIN_FOLDER}"
  docker build . -t ${ADMIN_CONTAINER}
  cd ../..
+ # setup configs and certs
+ envsubst < "./containers/nginx/tlsoffloader.conf" > "./files/config/tlsoffloader.conf"
+ export DOMAINS=(${ALL_DOMAINS})
+ export CERTFOLDER=certificates
+ # this safely runs or skips certbot depending on ${ENV}
+ . "./containers/certbot/letsencrypt-init.sh"
+ letsencrypt-init
  # TEMPORARY setup for dnh.hr
  export DOMAINS=(dnh.hr *.dnh.hr)
  letsencrypt-init
