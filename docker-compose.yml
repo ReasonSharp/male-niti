@@ -74,10 +74,8 @@ services:
       - "50007:80"
     networks:
       - mb-platform
-    environment:
-      UNSPLASH_ACCESS_KEY: ${UNSPLASH_ACCESS_KEY}
-      LANDING_VIDEO_URL_EN: ${LANDING_VIDEO_URL_EN}
-      LANDING_VIDEO_URL_HR: ${LANDING_VIDEO_URL_HR}
+    volumes:
+      - ${ATODO_CFG_SRC}:${ATODO_CFG_DST}:ro
     depends_on:
       - api
 
