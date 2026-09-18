@@ -262,9 +262,7 @@ update-one() {
  after=$(git -C "${folder}" rev-parse HEAD)
  cd ..
 
- set -x
  deliver-config "${folder}" "$(printf '%s' "${service}" | tr '[:lower:]' '[:upper:]')"
- set +x
  if [ "${service}" = "dnh" ]; then
   deliver-dnh-config
  fi
