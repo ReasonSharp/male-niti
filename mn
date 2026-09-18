@@ -77,6 +77,11 @@ deliver-dnh-config() {
 }
 
 deliver-config "${API_FOLDER}" API
+# every docker compose invocation parses the whole file, and docker-compose.yml
+# references ${ATODO_CFG_SRC}/${ATODO_CFG_DST} unconditionally (same reason
+# api's own call above runs on every invocation, not just build-platform/
+# update atodo)
+deliver-config "${ATODO_FOLDER}" ATODO
 
 clone-or-pull() {
  if [ -z "${1}" ] || [ -z "${2}" ]; then
