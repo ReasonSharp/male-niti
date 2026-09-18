@@ -67,6 +67,20 @@ services:
     depends_on:
       - db
 
+  atodo:
+    image: ${ATODO_CONTAINER}:latest
+    restart: unless-stopped
+    ports:
+      - "50007:80"
+    networks:
+      - mb-platform
+    environment:
+      UNSPLASH_ACCESS_KEY: ${UNSPLASH_ACCESS_KEY}
+      LANDING_VIDEO_URL_EN: ${LANDING_VIDEO_URL_EN}
+      LANDING_VIDEO_URL_HR: ${LANDING_VIDEO_URL_HR}
+    depends_on:
+      - api
+
   www:
     image: ${WWW_CONTAINER}:latest
     restart: unless-stopped

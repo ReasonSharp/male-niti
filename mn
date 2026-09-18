@@ -17,9 +17,11 @@ PREFIX=mn
 API_FOLDER=api
 WWW_FOLDER=www
 ADMIN_FOLDER=admin
+ATODO_FOLDER=atodo
 export API_CONTAINER=${PREFIX}-${API_FOLDER}
 export WWW_CONTAINER=${PREFIX}-${WWW_FOLDER}
 export ADMIN_CONTAINER=${PREFIX}-${ADMIN_FOLDER}
+export ATODO_CONTAINER=${PREFIX}-${ATODO_FOLDER}
 mkdir -p ./files/config
 if [ -z "${DNS_CRED_FULL_PATH}" ]; then
 	export DNS_CREDENTIALS=
@@ -100,8 +102,10 @@ clone-or-pull() {
 }
 
 # Brings up the db container and, if it hasn't been initialized yet, loads
-# containers/postgres/UP_001_20260723.sql into it. Safe to run repeatedly:
-# if the schema is already present it is left as-is.
+# containers/postgres/UP_001_20260723.sql into it; then applies every later
+# UP_*.sql migration unconditionally (each one is written with CREATE ...
+# IF NOT EXISTS, so re-running an already-applied one is a no-op). Safe to
+# run repeatedly either way.
 init-db() {
  docker compose -p mb-platform -f docker-compose.yml up -d db
 
@@ -127,12 +131,14 @@ init-db() {
 
  initialized=$(docker compose -p mb-platform -f docker-compose.yml exec -T db psql -U postgres -tAc "SELECT to_regclass('public.services')")
  if [ -n "${initialized}" ]; then
-  echo "${0}: db already initialized, leaving as-is"
-  return
+  echo "${0}: db already initialized, leaving core schema as-is"
+ else
+  echo "${0}: initializing db from containers/postgres/UP_001_20260723.sql"
+  docker compose -p mb-platform -f docker-compose.yml exec -T db psql -U postgres < ./containers/postgres/UP_001_20260723.sql
  fi
 
- echo "${0}: initializing db from containers/postgres/UP_001_20260723.sql"
- docker compose -p mb-platform -f docker-compose.yml exec -T db psql -U postgres < ./containers/postgres/UP_001_20260723.sql
+ echo "${0}: applying containers/postgres/UP_002_atodo.sql"
+ docker compose -p mb-platform -f docker-compose.yml exec -T db psql -U postgres < ./containers/postgres/UP_002_atodo.sql
 }
 
 build-platform() {
@@ -145,20 +151,24 @@ build-platform() {
  # references ${API_CFG_SRC}/${API_CFG_DST} unconditionally, and an empty value makes
  # every service's volume spec invalid, not just api's
  cd containers
- rm -rf "${API_FOLDER}" "${WWW_FOLDER}" "${ADMIN_FOLDER}"
+ rm -rf "${API_FOLDER}" "${WWW_FOLDER}" "${ADMIN_FOLDER}" "${ATODO_FOLDER}"
  git clone git@github.com:ReasonSharp/male-niti-api.git "${API_FOLDER}"
  git clone git@github.com:ReasonSharp/male-niti-web.git "${WWW_FOLDER}"
  git clone git@github.com:ReasonSharp/male-niti-admin.git "${ADMIN_FOLDER}"
+ git clone git@github.com:maleniti/atodo.git "${ATODO_FOLDER}"
  cd ..
  deliver-config "${API_FOLDER}" API
  deliver-config "${WWW_FOLDER}" WWW
  deliver-config "${ADMIN_FOLDER}" ADMIN
+ deliver-config "${ATODO_FOLDER}" ATODO
  cd "containers/${API_FOLDER}"
  docker build . -t ${API_CONTAINER}
  cd "../${WWW_FOLDER}"
  docker build . -t ${WWW_CONTAINER}
  cd "../${ADMIN_FOLDER}"
  docker build . -t ${ADMIN_CONTAINER}
+ cd "../${ATODO_FOLDER}"
+ docker build . -t ${ATODO_CONTAINER}
  cd ../..
  # setup configs and certs
  # not envsubst: the template has no ${...} placeholders, and nginx's own
@@ -241,6 +251,12 @@ update-one() {
    repo="git@github.com:ReasonSharp/male-niti-admin.git"
    build_args=()
    ;;
+  atodo)
+   folder="${ATODO_FOLDER}"
+   image="${ATODO_CONTAINER}"
+   repo="git@github.com:maleniti/atodo.git"
+   build_args=()
+   ;;
   dnh)
    folder="dnh-www"
    image="mn-dnh"
@@ -248,7 +264,7 @@ update-one() {
    build_args=()
    ;;
   *)
-   echo "usage: ${0} update [-f] { api | www | admin | dnh | db | tlsoffloader }"
+   echo "usage: ${0} update [-f] { api | www | admin | atodo | dnh | db | tlsoffloader }"
    exit 1
    ;;
  esac
