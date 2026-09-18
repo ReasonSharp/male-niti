@@ -59,6 +59,10 @@ deliver-config() {
  envsubst < "${tmpl}" > "${src}"
  export "${varprefix}_CFG_SRC"="./${src}"
  export "${varprefix}_CFG_DST"="${dst}"
+ # some Dockerfiles (e.g. api's) COPY their env file into the image at build
+ # time, so it also needs to sit in the build context itself, not just be
+ # bind-mounted at runtime - keep both copies in sync from the same render
+ cp "${src}" "containers/${folder}/$(basename "${dst}")"
 }
 
 # dnh-web is a bolted-on site, not one of this platform's own services, so
@@ -258,7 +262,9 @@ update-one() {
  after=$(git -C "${folder}" rev-parse HEAD)
  cd ..
 
+ set -x
  deliver-config "${folder}" "$(printf '%s' "${service}" | tr '[:lower:]' '[:upper:]')"
+ set +x
  if [ "${service}" = "dnh" ]; then
   deliver-dnh-config
  fi
