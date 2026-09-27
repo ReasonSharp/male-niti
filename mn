@@ -106,75 +106,460 @@ clone-or-pull() {
  fi
 }
 
-# Brings up the db container and, if it hasn't been initialized yet, loads
-# containers/postgres/UP_001_20260723.sql into it; then applies every later
-# UP_*.sql migration unconditionally (each one is written with CREATE ...
-# IF NOT EXISTS, so re-running an already-applied one is a no-op). Safe to
-# run repeatedly either way.
-init-db() {
- docker compose -p mb-platform -f docker-compose.yml up -d db
 
+# ---------------------------------------------------------------------------
+# Versioned deploys of the platform's own services (api, www, admin, atodo).
+#
+# A release is a version yyyy.MM.dd.x, tagged with that same name in every
+# service repo (and this one); `./mn deploy <version>` builds exactly those
+# tags. Without a version it deploys each repo's main branch as
+# "dev-<timestamp>" -- same steps, for development. Images are tagged with
+# the version (docker-compose.yml uses ${MN_VERSION}), so the previous
+# release's images stay around for `./mn rollback`.
+#
+# The database schema is versioned too: the api repo's db/migrations/, run
+# by dbupdater's pgupgrade/pgdowngrade (https://github.com/maleniti/dbupdater).
+# A deploy that needs migrations switches maintenance mode on (nginx answers
+# every page/API request with "being updated"), stops the api, backs the
+# database up, migrates -- each version one transaction, so a failure
+# changes nothing and the old release simply comes back -- then starts the
+# new release and waits for its /health to confirm the api and database
+# versions match before switching maintenance off.
+# ---------------------------------------------------------------------------
+
+PLATFORM_SERVICES=(api www admin atodo)
+DBUPDATER_FOLDER=dbupdater
+DBUPDATER_REPO=git@github.com:maleniti/dbupdater.git
+DB="${DB_NAME:-postgres}"
+MIGRATIONS="containers/${API_FOLDER}/db/migrations"
+VERSION_FILE=files/deployed-version
+PREVIOUS_VERSION_FILE=files/previous-version
+DEPLOY_LOG=files/deploy-history.log
+MAINTENANCE_DIR=files/maintenance
+BACKUP_DIR=files/backups
+HEALTH_URL=http://127.0.0.1:50000/health
+
+export MN_VERSION=$(cat "${VERSION_FILE}" 2>/dev/null || echo latest)
+
+# The maintenance page and status file nginx serves (see
+# containers/nginx/tlsoffloader.conf), kept current on every invocation.
+mkdir -p "${MAINTENANCE_DIR}"
+cp ./containers/nginx/maintenance.html "${MAINTENANCE_DIR}/_maintenance.html"
+[ -f "${MAINTENANCE_DIR}/status.json" ] || echo '{}' > "${MAINTENANCE_DIR}/status.json"
+
+dc() {
+ docker compose -p mb-platform -f docker-compose.yml "${@}"
+}
+
+die() {
+ echo "${0}: ${*}" >&2
+ exit 1
+}
+
+log-deploy() {
+ echo "$(date '+%Y-%m-%d %H:%M:%S') ${*}" >> "${DEPLOY_LOG}"
+}
+
+service-info() {
+ case "${1}" in
+  api)   folder="${API_FOLDER}";   image="${API_CONTAINER}";   repo="git@github.com:ReasonSharp/male-niti-api.git";;
+  www)   folder="${WWW_FOLDER}";   image="${WWW_CONTAINER}";   repo="git@github.com:ReasonSharp/male-niti-web.git";;
+  admin) folder="${ADMIN_FOLDER}"; image="${ADMIN_CONTAINER}"; repo="git@github.com:ReasonSharp/male-niti-admin.git";;
+  atodo) folder="${ATODO_FOLDER}"; image="${ATODO_CONTAINER}"; repo="git@github.com:maleniti/atodo.git";;
+  *) return 1;;
+ esac
+}
+
+# Checks containers/<folder> out at a release tag, or at its remote default
+# branch's head when no tag is given. These are deploy-only clones: any
+# local change in them is discarded.
+sync-source() {
+ local repo="${1}" folder="${2}" tag="${3}" branch
+ if [ ! -d "containers/${folder}/.git" ]; then
+  rm -rf "containers/${folder}"
+  git clone -q "${repo}" "containers/${folder}" || return 1
+ fi
+ git -C "containers/${folder}" fetch -q --tags --force origin || return 1
+ if [ -n "${tag}" ]; then
+  git -C "containers/${folder}" checkout -q --force "refs/tags/${tag}" 2>/dev/null \
+   || { echo "${0}: ${folder} has no tag ${tag}" >&2; return 1; }
+ else
+  git -C "containers/${folder}" remote set-head -a origin >/dev/null 2>&1
+  branch=$(git -C "containers/${folder}" symbolic-ref --short refs/remotes/origin/HEAD) || return 1
+  git -C "containers/${folder}" checkout -q --force -B "${branch#origin/}" "${branch}" || return 1
+ fi
+ echo "${folder}: $(git -C "containers/${folder}" log -1 --format='%h %s')"
+}
+
+wait-for-db() {
+ dc up -d db
  echo -n "${0}: waiting for db to accept connections"
- tries=0
- until docker compose -p mb-platform -f docker-compose.yml exec -T db pg_isready -U postgres >/dev/null 2>&1; do
+ local tries=0
+ until dc exec -T db pg_isready -U postgres >/dev/null 2>&1; do
   echo -n "."
   tries=$((tries + 1))
-  if [ "${tries}" -ge 60 ]; then
-   echo " timed out"
-   exit 1
-  fi
+  [ "${tries}" -ge 60 ] && { echo " timed out"; exit 1; }
   sleep 1
  done
  echo " ready"
-
  # POSTGRES_PASSWORD only takes effect on first-time initdb, so on a data
  # dir that predates this container (or ${DB_PASS} changing since) the
  # actual role password can drift from .env. Keep it in sync on every run,
  # using the trusted local socket connection rather than the (possibly
  # stale) password itself.
- docker compose -p mb-platform -f docker-compose.yml exec -T db psql -U postgres -c "ALTER USER postgres WITH PASSWORD '${DB_PASS}';" >/dev/null
+ dc exec -T db psql -U postgres -c "ALTER USER postgres WITH PASSWORD '${DB_PASS}';" >/dev/null
+}
 
- initialized=$(docker compose -p mb-platform -f docker-compose.yml exec -T db psql -U postgres -tAc "SELECT to_regclass('public.services')")
- if [ -n "${initialized}" ]; then
-  echo "${0}: db already initialized, leaving core schema as-is"
+psql-db() {
+ dc exec -T db psql -X -U postgres -d "${1}" -tA -v ON_ERROR_STOP=1 "${@:2}"
+}
+
+# dbupdater's pgupgrade/pgdowngrade against the platform database, psql
+# running inside the db container: pg <tool> <migrations dir> [options]
+pg() {
+ local tool="${1}"
+ shift
+ PSQL="docker compose -p mb-platform -f docker-compose.yml exec -T db psql" \
+  "containers/${DBUPDATER_FOLDER}/${tool}" "${@}" -U postgres "${DB}"
+}
+
+sync-dbupdater() {
+ sync-source "${DBUPDATER_REPO}" "${DBUPDATER_FOLDER}" "" >/dev/null || die "couldn't fetch dbupdater"
+}
+
+# "<database version> <latest version in the migrations dir>"
+db-versions() {
+ pg pgupgrade "${1:-${MIGRATIONS}}" --status
+}
+
+# The live database predates versioning: it has the CMS tables (version
+# 001) but no version record. Before recording it as 001, check its
+# structure really is what UP_001 creates -- built in a scratch database
+# alongside and compared column by column, constraint by constraint.
+adopt-unversioned-db() {
+ local current has_cms has_atodo diff_out same scratch=mn_baseline_check
+ read -r current _ <<< "$(db-versions)"
+ [ "${current}" = "000" ] || return 0
+ has_cms=$(psql-db "${DB}" -c "SELECT to_regclass('public.services') IS NOT NULL")
+ [ "${has_cms}" = "t" ] || return 0 # an empty database: migrations create everything
+ has_atodo=$(psql-db "${DB}" -c "SELECT EXISTS (SELECT 1 FROM pg_namespace WHERE nspname = 'atodo')")
+ if [ "${has_atodo}" = "t" ]; then
+  echo "${0}: the unversioned database already has an atodo schema, which versioning can't vouch for." >&2
+  echo "${0}: on a dev machine, rebuild it from the migrations with ./mn db reset." >&2
+  return 1
+ fi
+ echo "${0}: unversioned database with the CMS tables -- checking it matches version 001"
+ psql-db postgres -c "DROP DATABASE IF EXISTS ${scratch}" >/dev/null
+ PSQL="docker compose -p mb-platform -f docker-compose.yml exec -T db psql" \
+  "containers/${DBUPDATER_FOLDER}/pgupgrade" "${MIGRATIONS}" --ver 001 -U postgres "${scratch}" >/dev/null || return 1
+ diff_out=$(diff <(psql-db "${DB}" < ./containers/postgres/catalog.sql) <(psql-db "${scratch}" < ./containers/postgres/catalog.sql))
+ same=$?
+ psql-db postgres -c "DROP DATABASE ${scratch}" >/dev/null
+ if [ "${same}" -ne 0 ]; then
+  echo "${0}: the database differs from version 001 (< database, > version 001):" >&2
+  echo "${diff_out}" >&2
+  return 1
+ fi
+ pg pgupgrade "${MIGRATIONS}" --baseline 001
+}
+
+db-backup() {
+ local name="${1:-manual}" file
+ mkdir -p "${BACKUP_DIR}"
+ file="${BACKUP_DIR}/$(date +%Y%m%d-%H%M%S)_${name}.dump"
+ if dc exec -T db pg_dump -U postgres -Fc "${DB}" > "${file}" && [ -s "${file}" ]; then
+  echo "${0}: database backed up to ${file}"
  else
-  echo "${0}: initializing db from containers/postgres/UP_001_20260723.sql"
-  docker compose -p mb-platform -f docker-compose.yml exec -T db psql -U postgres < ./containers/postgres/UP_001_20260723.sql
+  rm -f "${file}"
+  echo "${0}: database backup FAILED" >&2
+  return 1
+ fi
+}
+
+write-status() {
+ # clientVersion: the atodo client that's live, so open tabs running an
+ # older one offer a reload; announcement: an upcoming maintenance window.
+ local announcement="${1}"
+ if [ -n "${announcement}" ]; then
+  printf '{"clientVersion":"%s","announcement":%s}\n' "${MN_VERSION}" "${announcement}" > "${MAINTENANCE_DIR}/status.json"
+ else
+  printf '{"clientVersion":"%s"}\n' "${MN_VERSION}" > "${MAINTENANCE_DIR}/status.json"
+ fi
+}
+
+maintenance-on() {
+ touch "${MAINTENANCE_DIR}/on"
+ echo "${0}: maintenance mode ON -- pages show the maintenance page, API requests get 503 MAINTENANCE"
+}
+
+maintenance-off() {
+ rm -f "${MAINTENANCE_DIR}/on"
+ echo "${0}: maintenance mode off"
+}
+
+# Waits for the api to report itself in sync with the database, running
+# the expected version.
+wait-for-health() {
+ local expect="${1}" body tries=0
+ echo -n "${0}: waiting for the api to report healthy"
+ while [ "${tries}" -lt 60 ]; do
+  body=$(curl -s --max-time 3 "${HEALTH_URL}")
+  if echo "${body}" | grep -q '"status":"ok"' && echo "${body}" | grep -q "\"version\":\"${expect}\""; then
+   echo " ok"
+   echo "${0}: ${body}"
+   return 0
+  fi
+  echo -n "."
+  tries=$((tries + 1))
+  sleep 2
+ done
+ echo " timed out"
+ echo "${0}: last /health answer: ${body:-none}" >&2
+ return 1
+}
+
+# Keeps the images of the current and previous releases; removes the rest.
+prune-images() {
+ local keep1="${1}" keep2="${2}" svc tag
+ for svc in "${PLATFORM_SERVICES[@]}"; do
+  service-info "${svc}"
+  for tag in $(docker images "${image}" --format '{{.Tag}}'); do
+   [ "${tag}" = "${keep1}" ] || [ "${tag}" = "${keep2}" ] && continue
+   docker rmi "${image}:${tag}" >/dev/null 2>&1
+  done
+ done
+ docker image prune -f >/dev/null
+}
+
+deploy() {
+ local version="${1}" label tag svc current latest now migrate=0 prev="${MN_VERSION}"
+ # On a dev machine, versions with demo data get it as they're applied.
+ local demo=()
+ [ "${ENV}" = "dev" ] && demo=(--demo)
+ if [ -n "${version}" ]; then
+  [[ "${version}" =~ ^[0-9]{4}\.[0-9]{2}\.[0-9]{2}\.[0-9]+$ ]] || die "version must look like yyyy.MM.dd.x, e.g. 2026.09.27.1"
+  label="${version}"
+  tag="${version}"
+  if [ "$(git describe --tags --exact-match 2>/dev/null)" != "${version}" ]; then
+   echo "${0}: warning: this platform checkout (mn, compose, nginx config) isn't at tag ${version}"
+  fi
+ else
+  label="dev-$(date +%Y%m%d%H%M%S)"
+  tag=""
+ fi
+ echo "${0}: deploying ${label} (currently ${prev})"
+
+ mkdir -p files/config files/postgres
+ sync-dbupdater
+ for svc in "${PLATFORM_SERVICES[@]}"; do
+  service-info "${svc}"
+  sync-source "${repo}" "${folder}" "${tag}" || die "couldn't check out ${svc}"
+  deliver-config "${folder}" "$(printf '%s' "${svc}" | tr '[:lower:]' '[:upper:]')"
+ done
+
+ # Build everything first, while the current release keeps serving.
+ for svc in "${PLATFORM_SERVICES[@]}"; do
+  service-info "${svc}"
+  echo "${0}: building ${image}:${label}"
+  docker build -q --build-arg VERSION="${label}" -t "${image}:${label}" "containers/${folder}" >/dev/null \
+   || die "building ${svc} failed -- nothing was changed"
+ done
+
+ wait-for-db
+ adopt-unversioned-db || die "the database needs attention first -- nothing was changed"
+ read -r current latest <<< "$(db-versions)"
+ [ -n "${current}" ] || die "couldn't read the database version"
+ if [ "$((10#${current}))" -gt "$((10#${latest}))" ]; then
+  die "the database (version ${current}) is newer than ${label} expects (${latest}) -- use ./mn rollback to go back to an older release"
+ fi
+ [ "${current}" != "${latest}" ] && migrate=1
+
+ if [ "${migrate}" -eq 1 ]; then
+  echo "${0}: database ${current} -> ${latest}"
+  maintenance-on
+  dc stop api
+  if ! db-backup "${prev}_to_${label}"; then
+   dc start api
+   maintenance-off
+   die "no backup, no migration -- ${prev} is still running"
+  fi
+  if ! pg pgupgrade "${MIGRATIONS}" "${demo[@]}" --ver "${latest}"; then
+   # Each version is its own transaction: the failing one changed nothing,
+   # but earlier ones in the same run stay applied -- so the current release
+   # can only come back if the database is still at the version it expects.
+   read -r now _ <<< "$(db-versions)"
+   if [ "${now}" = "${current}" ]; then
+    dc start api
+    maintenance-off
+    die "migration failed; the database is unchanged and ${prev} is running again"
+   fi
+   die "migration failed at version ${now} (from ${current}); maintenance stays ON -- fix the failing migration and deploy again, or restore the backup (./mn db restore)"
+  fi
  fi
 
- echo "${0}: applying containers/postgres/UP_002_atodo.sql"
- docker compose -p mb-platform -f docker-compose.yml exec -T db psql -U postgres < ./containers/postgres/UP_002_atodo.sql
+ export MN_VERSION="${label}"
+ dc up -d --force-recreate "${PLATFORM_SERVICES[@]}"
+ if ! wait-for-health "${label}"; then
+  [ "${migrate}" -eq 1 ] || maintenance-on
+  echo "${prev}" > "${PREVIOUS_VERSION_FILE}"
+  echo "${label}" > "${VERSION_FILE}"
+  log-deploy "deploy ${label} (from ${prev}) UNHEALTHY"
+  die "${label} isn't healthy (see ./mn logs api); maintenance is ON -- ./mn rollback returns to ${prev}"
+ fi
+
+ echo "${prev}" > "${PREVIOUS_VERSION_FILE}"
+ echo "${label}" > "${VERSION_FILE}"
+ write-status
+ # A successful deploy ends maintenance -- whether it switched it on itself
+ # or it was already on (by hand, or after a restore).
+ [ -f "${MAINTENANCE_DIR}/on" ] && maintenance-off
+ log-deploy "deploy ${label} (from ${prev}, database ${current} -> ${latest})"
+ prune-images "${label}" "${prev}"
+ echo "${0}: ${label} is live"
+}
+
+# Back to the release deployed before the current one: its images are still
+# there (see prune-images), and if the database has migrations it doesn't
+# know, they're reverted with their DOWN scripts (taken from the current
+# release's api image) -- unless minAllowedVersion forbids it, in which case
+# nothing changes and the way back is restoring a backup.
+rollback() {
+ local prev current expected dbv tmp cid svc
+ prev=$(cat "${PREVIOUS_VERSION_FILE}" 2>/dev/null) || die "no previous release recorded"
+ current="${MN_VERSION}"
+ for svc in "${PLATFORM_SERVICES[@]}"; do
+  service-info "${svc}"
+  docker image inspect "${image}:${prev}" >/dev/null 2>&1 || die "image ${image}:${prev} is gone -- deploy ${prev} again instead"
+ done
+ echo "${0}: rolling back from ${current} to ${prev}"
+ sync-dbupdater
+ wait-for-db
+ tmp=$(mktemp -d)
+ cid=$(docker create "${API_CONTAINER}:${current}")
+ docker cp "${cid}:/api/db/migrations" "${tmp}/" >/dev/null
+ docker rm "${cid}" >/dev/null
+ expected=$(docker run --rm --entrypoint sh "${API_CONTAINER}:${prev}" -c 'ls /api/db/migrations' \
+  | sed -n 's/^UP_\([0-9]\{3\}\)_Version_.*\.sql$/\1/p' | sort | tail -1)
+ read -r dbv _ <<< "$(db-versions "${tmp}/migrations")"
+ [ -n "${expected}" ] && [ -n "${dbv}" ] || { rm -rf "${tmp}"; die "couldn't determine the database versions"; }
+
+ local downgraded=0 floor
+ floor=$(psql-db "${DB}" -c "SELECT settingValue FROM public.setting WHERE settingName = 'minAllowedVersion'")
+ if [ "$((10#${dbv}))" -gt "$((10#${expected}))" ] && [ "$((10#${floor:-${dbv}}))" -gt "$((10#${expected}))" ]; then
+  rm -rf "${tmp}"
+  die "${prev} needs database version ${expected}, but this database can't go below ${floor:-${dbv}} (minAllowedVersion) -- nothing was changed. The way back is restoring a backup from before ${current} (./mn db restore)."
+ fi
+ if [ "$((10#${dbv}))" -gt "$((10#${expected}))" ]; then
+  echo "${0}: database ${dbv} -> ${expected}"
+  maintenance-on
+  dc stop api
+  db-backup "${current}_to_${prev}" || { dc start api; maintenance-off; rm -rf "${tmp}"; die "no backup, no downgrade -- ${current} is still running"; }
+  if ! pg pgdowngrade "${tmp}/migrations" --ver "${expected}"; then
+   read -r now _ <<< "$(db-versions "${tmp}/migrations")"
+   rm -rf "${tmp}"
+   if [ "${now}" = "${dbv}" ]; then
+    dc start api
+    maintenance-off
+    die "the database can't be downgraded (see above -- minAllowedVersion?); ${current} is still running. The way back is restoring a backup from before ${current} (./mn db restore)."
+   fi
+   die "downgrade failed at version ${now}; maintenance stays ON -- restore a backup (./mn db restore)"
+  fi
+  downgraded=1
+ fi
+ rm -rf "${tmp}"
+
+ export MN_VERSION="${prev}"
+ dc up -d --force-recreate "${PLATFORM_SERVICES[@]}"
+ if ! wait-for-health "${prev}"; then
+  [ "${downgraded}" -eq 1 ] || maintenance-on
+  die "${prev} isn't healthy either (see ./mn logs api); maintenance is ON"
+ fi
+ echo "${prev}" > "${VERSION_FILE}"
+ rm -f "${PREVIOUS_VERSION_FILE}"
+ write-status
+ [ "${downgraded}" -eq 1 ] && maintenance-off
+ log-deploy "rollback to ${prev} (from ${current})"
+ echo "${0}: ${prev} is live again"
+}
+
+maintenance() {
+ case "${1}" in
+  on) maintenance-on;;
+  off) maintenance-off;;
+  announce)
+   local start minutes
+   start=$(date -d "${2}" --iso-8601=seconds 2>/dev/null) || die "usage: ${0} maintenance announce '<date time>' <minutes>"
+   minutes="${3}"
+   [[ "${minutes}" =~ ^[0-9]+$ ]] || die "usage: ${0} maintenance announce '<date time>' <minutes>"
+   write-status "{\"start\":\"${start}\",\"minutes\":${minutes}}"
+   echo "${0}: announced maintenance at ${start} (~${minutes} min) -- shown in open A-To-Do tabs within 5 minutes"
+   ;;
+  clear)
+   write-status
+   echo "${0}: announcement cleared"
+   ;;
+  status|"")
+   [ -f "${MAINTENANCE_DIR}/on" ] && echo "maintenance: ON" || echo "maintenance: off"
+   echo "status.json: $(cat "${MAINTENANCE_DIR}/status.json")"
+   ;;
+  *) die "usage: ${0} maintenance { on | off | announce '<date time>' <minutes> | clear | status }";;
+ esac
+}
+
+db() {
+ case "${1}" in
+  status)
+   sync-dbupdater
+   wait-for-db >/dev/null
+   read -r current latest <<< "$(db-versions)"
+   echo "database '${DB}': version ${current}; latest in the checked-out api source: ${latest}"
+   ;;
+  backup)
+   wait-for-db >/dev/null
+   db-backup manual
+   ;;
+  restore)
+   [ -f "${2}" ] || die "usage: ${0} db restore <backup file> (see ${BACKUP_DIR}/)"
+   echo "${0}: restoring ${2} over database '${DB}' -- the api is stopped and maintenance is ON meanwhile"
+   read -r -p "type 'restore' to continue: " answer
+   [ "${answer}" = "restore" ] || die "cancelled"
+   wait-for-db >/dev/null
+   maintenance-on
+   dc stop api
+   dc exec -T db pg_restore -U postgres --clean --if-exists -d "${DB}" < "${2}" || die "restore reported errors (see above); maintenance stays ON"
+   echo "${0}: restored; maintenance stays ON until you deploy the release that matches this database (./mn deploy <version>, or ./mn deploy on dev) -- that starts the api again and ends maintenance"
+   ;;
+  reset)
+   # Dev only: rebuild the database from the migrations (plus demo data).
+   [ "${ENV}" = "dev" ] || die "db reset is only for ENV=dev"
+   echo "${0}: this DELETES everything in database '${DB}' and rebuilds it from ${MIGRATIONS} with demo data"
+   read -r -p "type 'reset' to continue: " answer
+   [ "${answer}" = "reset" ] || die "cancelled"
+   sync-dbupdater
+   service-info api
+   sync-source "${repo}" "${folder}" "" >/dev/null || die "couldn't fetch the api source (for its migrations)"
+   wait-for-db >/dev/null
+   dc stop api
+   psql-db "${DB}" -c "DROP SCHEMA IF EXISTS atodo CASCADE; DROP SCHEMA public CASCADE; CREATE SCHEMA public;" >/dev/null || die "reset failed"
+   pg pgupgrade "${MIGRATIONS}" --demo --full || die "migrations failed"
+   dc start api
+   ;;
+  *) die "usage: ${0} db { status | backup | restore <file> | reset }";;
+ esac
+}
+
+status() {
+ echo "release: ${MN_VERSION}$( [ -f "${PREVIOUS_VERSION_FILE}" ] && echo " (previous: $(cat "${PREVIOUS_VERSION_FILE}"))")"
+ maintenance status
+ echo "api /health: $(curl -s --max-time 3 "${HEALTH_URL}" || echo unreachable)"
+ [ -f "${DEPLOY_LOG}" ] && { echo "recent deploys:"; tail -5 "${DEPLOY_LOG}" | sed 's/^/ /'; }
+ dc ps
 }
 
 build-platform() {
- mkdir -p files/config
- mkdir -p files/postgres
+ mkdir -p files/config files/postgres
  # bring old platform down; in the future this should be done with minimum downtime
- docker compose -p mb-platform -f docker-compose.yml down
- # at the moment, just clone everything, in the future enable checking out individually
- # this has to happen before any docker compose invocation below: docker-compose.yml
- # references ${API_CFG_SRC}/${API_CFG_DST} unconditionally, and an empty value makes
- # every service's volume spec invalid, not just api's
- cd containers
- rm -rf "${API_FOLDER}" "${WWW_FOLDER}" "${ADMIN_FOLDER}" "${ATODO_FOLDER}"
- git clone git@github.com:ReasonSharp/male-niti-api.git "${API_FOLDER}"
- git clone git@github.com:ReasonSharp/male-niti-web.git "${WWW_FOLDER}"
- git clone git@github.com:ReasonSharp/male-niti-admin.git "${ADMIN_FOLDER}"
- git clone git@github.com:maleniti/atodo.git "${ATODO_FOLDER}"
- cd ..
- deliver-config "${API_FOLDER}" API
- deliver-config "${WWW_FOLDER}" WWW
- deliver-config "${ADMIN_FOLDER}" ADMIN
- deliver-config "${ATODO_FOLDER}" ATODO
- cd "containers/${API_FOLDER}"
- docker build . -t ${API_CONTAINER}
- cd "../${WWW_FOLDER}"
- docker build . -t ${WWW_CONTAINER}
- cd "../${ADMIN_FOLDER}"
- docker build . -t ${ADMIN_CONTAINER}
- cd "../${ATODO_FOLDER}"
- docker build . -t ${ATODO_CONTAINER}
- cd ../..
+ dc down
  # setup configs and certs
  # not envsubst: the template has no ${...} placeholders, and nginx's own
  # bare $variables (map, log_format, proxy_pass, ...) would get emptied out
@@ -197,13 +582,13 @@ build-platform() {
  docker build . -t mn-dnh
  cd ../..
  deliver-dnh-config
- # bring up platform
- docker compose -p mb-platform -f docker-compose.yml up -d
- init-db
+ # the platform's own services, database included (a fresh database is
+ # created from the migrations -- on ENV=dev with demo data)
+ deploy "${1}"
+ # everything else
+ dc up -d
  # TEMPORARY cleanup of dnh.hr
  rm -rf ./containers/dnh-www
- # cleanup
- docker system prune -a -f
 }
 
 rebuild-dnh() {
@@ -217,86 +602,48 @@ rebuild-dnh() {
  docker build . -t mn-dnh
  cd ../..
  deliver-dnh-config
- docker compose -p mb-platform -f docker-compose.yml up -d dnhdb
- docker compose -p mb-platform -f docker-compose.yml up -d dnh --force-recreate
+ dc up -d dnhdb
+ dc up -d dnh --force-recreate
 }
 
 update-one() {
  service="${1}"
  force="${2}"
 
- if [ "${service}" = "db" ]; then
-  init-db
-  return
- fi
-
- if [ "${service}" = "tlsoffloader" ]; then
-  # static config, not a cloned/built service - just reload it
-  cp "./containers/nginx/tlsoffloader.conf" "./files/config/tlsoffloader.conf"
-  docker compose -p mb-platform -f docker-compose.yml up -d tlsoffloader --force-recreate
-  return
- fi
-
  case "${service}" in
-  api)
-   folder="${API_FOLDER}"
-   image="${API_CONTAINER}"
-   repo="git@github.com:ReasonSharp/male-niti-api.git"
-   build_args=()
+  api|www|admin|atodo)
+   echo "${0}: the platform's services deploy together, with their database migrations: use ./mn deploy [version]"
+   exit 1
    ;;
-  www)
-   folder="${WWW_FOLDER}"
-   image="${WWW_CONTAINER}"
-   repo="git@github.com:ReasonSharp/male-niti-web.git"
-   build_args=()
+  db)
+   echo "${0}: the database is migrated by ./mn deploy (see ./mn db for status/backup/restore/reset)"
+   exit 1
    ;;
-  admin)
-   folder="${ADMIN_FOLDER}"
-   image="${ADMIN_CONTAINER}"
-   repo="git@github.com:ReasonSharp/male-niti-admin.git"
-   build_args=()
-   ;;
-  atodo)
-   folder="${ATODO_FOLDER}"
-   image="${ATODO_CONTAINER}"
-   repo="git@github.com:maleniti/atodo.git"
-   build_args=()
+  tlsoffloader)
+   # static config, not a cloned/built service - just reload it
+   cp "./containers/nginx/tlsoffloader.conf" "./files/config/tlsoffloader.conf"
+   dc up -d tlsoffloader --force-recreate
    ;;
   dnh)
-   folder="dnh-www"
-   image="mn-dnh"
-   repo="git@github.com:ReasonSharp/dnh-web.git"
-   build_args=()
+   cd containers
+   before=""
+   [ -d dnh-www ] && before=$(git -C dnh-www rev-parse HEAD)
+   clone-or-pull git@github.com:ReasonSharp/dnh-web.git dnh-www
+   after=$(git -C dnh-www rev-parse HEAD)
+   cd ..
+   deliver-dnh-config
+   if [ "${force}" -eq 1 ] || [ "${before}" != "${after}" ] || [ -z "$(docker images -q mn-dnh 2>/dev/null)" ]; then
+    docker build containers/dnh-www -t mn-dnh
+   else
+    echo "${0}: dnh unchanged, skipping rebuild"
+   fi
+   dc up -d dnh --force-recreate
    ;;
   *)
-   echo "usage: ${0} update [-f] { api | www | admin | atodo | dnh | db | tlsoffloader }"
+   echo "usage: ${0} update [-f] { dnh | tlsoffloader }"
    exit 1
    ;;
  esac
-
- cd containers
- before=""
- if [ -d "${folder}" ]; then
-  before=$(git -C "${folder}" rev-parse HEAD)
- fi
- clone-or-pull "${repo}" "${folder}"
- after=$(git -C "${folder}" rev-parse HEAD)
- cd ..
-
- deliver-config "${folder}" "$(printf '%s' "${service}" | tr '[:lower:]' '[:upper:]')"
- if [ "${service}" = "dnh" ]; then
-  deliver-dnh-config
- fi
-
- if [ "${force}" -eq 1 ] || [ "${before}" != "${after}" ] || [ -z "$(docker images -q "${image}" 2>/dev/null)" ]; then
-  cd "containers/${folder}"
-  docker build "${build_args[@]}" . -t "${image}"
-  cd ../..
- else
-  echo "${0}: ${service} unchanged, skipping rebuild"
- fi
-
- docker compose -p mb-platform -f docker-compose.yml up -d "${service}" --force-recreate
 }
 
 update() {
@@ -317,27 +664,53 @@ update() {
 }
 
 list-platform-containers() {
-	docker compose -p mb-platform -f docker-compose.yml ps ${@}
+	dc ps ${@}
 }
 
 logs() {
-	docker compose -p mb-platform -f docker-compose.yml logs ${@}
+	dc logs ${@}
 }
 
 exec() {
-	docker compose -p mb-platform -f docker-compose.yml exec -it ${@}
+	dc exec -it ${@}
+}
+
+usage() {
+ cat <<USAGE
+Usage: ${0} COMMAND [params]
+
+ deploy [version]    deploy a release (yyyy.MM.dd.x, tagged in every repo) or,
+                     without one, every repo's main branch as dev-<timestamp>
+ rollback            back to the previously deployed release
+ status              deployed release, maintenance, api health, containers
+ maintenance on|off  switch maintenance mode by hand
+ maintenance announce '<date time>' <minutes>
+                     announce upcoming maintenance to A-To-Do users
+ maintenance clear   withdraw the announcement
+ db status|backup|restore <file>|reset
+                     database version, backup, restore, dev-only rebuild
+ build-platform [version]
+                     set up everything from scratch (certificates, dnh, ...)
+ update [-f] dnh|tlsoffloader
+ rebuild-dnh
+ ps | logs | exec    docker compose passthroughs
+USAGE
 }
 
 cmd="${1}"
 shift
 
 case "${cmd}" in
- build-platform) build-platform;;
+ deploy)         deploy "${@}";;
+ rollback)       rollback;;
+ status)         status;;
+ maintenance)    maintenance "${@}";;
+ db)             db "${@}";;
+ build-platform) build-platform "${@}";;
  rebuild-dnh)    rebuild-dnh;;
  update)         update "${@}";;
  ps)             list-platform-containers "${@}";;
  logs)           logs "${@}";;
  exec)           exec "${@}";;
- *) echo "Usage: ${0} COMMAND [params]"
+ *)              usage;;
 esac
-

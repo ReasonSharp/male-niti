@@ -14,6 +14,8 @@ services:
       - ./files/certificates/conf:/etc/letsencrypt
       - ./files/certificates/www:/var/www/certbot
       - ./files/www/html:/usr/share/nginx/html
+      # maintenance flag, page and status.json -- see mn's maintenance/deploy
+      - ./files/maintenance:/etc/nginx/maintenance:ro
     command: "/bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done & nginx -g \"daemon off;\"'"
 
   certbot:
@@ -43,7 +45,7 @@ services:
       - ./files/postgres:/var/lib/postgresql/data
 
   api:
-    image: ${API_CONTAINER}:latest
+    image: ${API_CONTAINER}:${MN_VERSION:-latest}
     restart: unless-stopped
     ports:
       - "50000:50000"
@@ -56,7 +58,7 @@ services:
       - db
 
   admin:
-    image: ${ADMIN_CONTAINER}:latest
+    image: ${ADMIN_CONTAINER}:${MN_VERSION:-latest}
     restart: unless-stopped
     ports:
       - "50006:50006"
@@ -68,7 +70,7 @@ services:
       - db
 
   atodo:
-    image: ${ATODO_CONTAINER}:latest
+    image: ${ATODO_CONTAINER}:${MN_VERSION:-latest}
     restart: unless-stopped
     ports:
       - "50007:80"
@@ -80,7 +82,7 @@ services:
       - api
 
   www:
-    image: ${WWW_CONTAINER}:latest
+    image: ${WWW_CONTAINER}:${MN_VERSION:-latest}
     restart: unless-stopped
     ports:
       - "50002:50002"
