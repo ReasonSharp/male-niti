@@ -54,6 +54,8 @@ services:
     volumes:
       - ./files/${API_CONTAINER}/out:/public/out:rw
       - ${API_CFG_SRC}:${API_CFG_DST}:ro
+      # maintenance flag -- the api answers 503 MAINTENANCE while it's set
+      - ./files/maintenance:/maintenance:ro
     depends_on:
       - db
 
