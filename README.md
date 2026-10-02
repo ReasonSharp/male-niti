@@ -69,6 +69,9 @@ API refuses to serve (503) unless it's exactly the version its code expects.
 ./mn db backup             # a backup now (files/backups/)
 ./mn db restore <file>     # restore one (then deploy the matching release)
 ./mn db reset              # ENV=dev only: rebuild from the migrations + demo data
+./mn db upgrade            # one version up (backs up first)
+./mn db downgrade          # one version down (backs up first)
+./mn db login              # psql in the db container, with .env's credentials
 ```
 
 A database that predates versioning (the CMS tables, no version record) is

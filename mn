@@ -544,7 +544,30 @@ db() {
    pg pgupgrade "${MIGRATIONS}" --demo --full || die "migrations failed"
    dc start api
    ;;
-  *) die "usage: ${0} db { status | backup | restore <file> | reset }";;
+  upgrade|downgrade)
+   # One version up or down, with the checked-out api source's migrations
+   # (plus demo data on dev, as deploy does). Backs up first; the running
+   # api isn't touched, so its /health reports the mismatch until the
+   # matching release is deployed.
+   local demo=()
+   [ "${ENV}" = "dev" ] && demo=(--demo)
+   [ -d "${MIGRATIONS}" ] || die "no migrations at ${MIGRATIONS} -- deploy once first"
+   sync-dbupdater
+   wait-for-db >/dev/null
+   read -r current _ <<< "$(db-versions)"
+   [ -n "${current}" ] || die "couldn't read the database version"
+   db-backup "${1}_from_${current}" || die "no backup, no ${1}"
+   pg "pg${1}" "${MIGRATIONS}" "${demo[@]}" || die "${1} failed; the database is still at version ${current}"
+   read -r current latest <<< "$(db-versions)"
+   echo "${0}: database '${DB}' is now at version ${current} (latest in the checked-out api source: ${latest})"
+   ;;
+  login)
+   # An interactive psql inside the db container, logged in over TCP with
+   # .env's credentials (so it also confirms they work).
+   wait-for-db >/dev/null
+   dc exec -e PGPASSWORD="${DB_PASS}" db psql -h 127.0.0.1 -U "${DB_USER:-postgres}" -d "${DB}"
+   ;;
+  *) die "usage: ${0} db { status | backup | restore <file> | reset | upgrade | downgrade | login }";;
  esac
 }
 
@@ -687,8 +710,9 @@ Usage: ${0} COMMAND [params]
  maintenance announce '<date time>' <minutes>
                      announce upcoming maintenance to A-To-Do users
  maintenance clear   withdraw the announcement
- db status|backup|restore <file>|reset
-                     database version, backup, restore, dev-only rebuild
+ db status|backup|restore <file>|reset|upgrade|downgrade|login
+                     database version, backup, restore, dev-only rebuild,
+                     one version up/down, psql with .env's credentials
  build-platform [version]
                      set up everything from scratch (certificates, dnh, ...)
  update [-f] dnh|tlsoffloader
