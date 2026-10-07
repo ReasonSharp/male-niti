@@ -112,7 +112,7 @@ clone-or-pull() {
 #
 # A release is a version yyyy.MM.dd.x, tagged with that same name in every
 # service repo (and this one); `./mn deploy <version>` builds exactly those
-# tags. Without a version it deploys each repo's main branch as
+# tags. Without a version it deploys each repo's default branch as
 # "dev-<timestamp>" -- same steps, for development. Images are tagged with
 # the version (docker-compose.yml uses ${MN_VERSION}), so the previous
 # release's images stay around for `./mn rollback`.
@@ -703,7 +703,7 @@ usage() {
 Usage: ${0} COMMAND [params]
 
  deploy [version]    deploy a release (yyyy.MM.dd.x, tagged in every repo) or,
-                     without one, every repo's main branch as dev-<timestamp>
+                     without one, every repo's default branch as dev-<timestamp>
  rollback            back to the previously deployed release
  status              deployed release, maintenance, api health, containers
  maintenance on|off  switch maintenance mode by hand

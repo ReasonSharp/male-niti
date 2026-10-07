@@ -29,7 +29,7 @@ services known to work together.
 
 ```bash
 ./mn deploy 2026.10.05.1   # deploy a release
-./mn deploy                # dev: every repo's main branch, as dev-<timestamp>
+./mn deploy                # dev: every repo's default branch, as dev-<timestamp>
 ./mn rollback              # back to the release deployed before
 ./mn status                # what's deployed, maintenance, api health
 ```
