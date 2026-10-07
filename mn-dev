@@ -1,0 +1,61 @@
+#!/bin/bash
+
+# Development-only mn commands. ./mn loads this file only when ENV=dev, so on
+# live (ENV=prod) these don't exist and can't be run by accident --
+# build-platform in particular takes every container down, dnh.hr included.
+# On live, the platform's services are deployed with ./mn deploy [version].
+#
+# Run on its own (./mn-dev <command>), it hands over to ./mn on a dev
+# machine and refuses anywhere else.
+
+if [ "${BASH_SOURCE[0]}" = "${0}" ]; then
+ cd "$(dirname "${0}")" || exit 1
+ env=$(set -a; . ./.env >/dev/null 2>&1; echo "${ENV}")
+ if [ "${env}" != "dev" ]; then
+  echo "${0}: development only, but ENV=${env:-(not set)} here -- use ./mn deploy [version]" >&2
+  exit 1
+ fi
+ exec ./mn "${@}"
+fi
+
+# Sourced: only ./mn does that, and only with ENV=dev -- but never load
+# these anywhere else.
+if [ "${ENV}" != "dev" ]; then
+ echo "mn-dev: development only, but ENV=${ENV:-(not set)} here" >&2
+ return 1
+fi
+
+build-platform() {
+ mkdir -p files/config files/postgres
+ # bring old platform down; in the future this should be done with minimum downtime
+ dc down
+ # setup configs and certs
+ # not envsubst: the template has no ${...} placeholders, and nginx's own
+ # bare $variables (map, log_format, proxy_pass, ...) would get emptied out
+ # by envsubst substituting anything that isn't a real env var
+ cp "./containers/nginx/tlsoffloader.conf" "./files/config/tlsoffloader.conf"
+ export DOMAINS=(${ALL_DOMAINS})
+ export CERTFOLDER=certificates
+ # this safely runs or skips certbot depending on ${ENV}
+ . "./containers/certbot/letsencrypt-init.sh"
+ letsencrypt-init
+ # TEMPORARY setup for dnh.hr - its DNS zone lives in a separate GCP project,
+ # so it needs its own dns-google credentials, not the platform's
+ export DOMAINS=(dnh.hr *.dnh.hr)
+ export DNS_CRED_CONTAINER_PATH=/dnh-cred.json
+ letsencrypt-init
+ cd containers
+ rm -rf dnh-www
+ git clone git@github.com:ReasonSharp/dnh-web.git "dnh-www"
+ cd dnh-www
+ docker build . -t mn-dnh
+ cd ../..
+ deliver-dnh-config
+ # the platform's own services, database included (a fresh database is
+ # created from the migrations -- on ENV=dev with demo data)
+ deploy "${1}"
+ # everything else
+ dc up -d
+ # TEMPORARY cleanup of dnh.hr
+ rm -rf ./containers/dnh-www
+}

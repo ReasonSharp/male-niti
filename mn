@@ -579,41 +579,6 @@ status() {
  dc ps
 }
 
-build-platform() {
- mkdir -p files/config files/postgres
- # bring old platform down; in the future this should be done with minimum downtime
- dc down
- # setup configs and certs
- # not envsubst: the template has no ${...} placeholders, and nginx's own
- # bare $variables (map, log_format, proxy_pass, ...) would get emptied out
- # by envsubst substituting anything that isn't a real env var
- cp "./containers/nginx/tlsoffloader.conf" "./files/config/tlsoffloader.conf"
- export DOMAINS=(${ALL_DOMAINS})
- export CERTFOLDER=certificates
- # this safely runs or skips certbot depending on ${ENV}
- . "./containers/certbot/letsencrypt-init.sh"
- letsencrypt-init
- # TEMPORARY setup for dnh.hr - its DNS zone lives in a separate GCP project,
- # so it needs its own dns-google credentials, not the platform's
- export DOMAINS=(dnh.hr *.dnh.hr)
- export DNS_CRED_CONTAINER_PATH=/dnh-cred.json
- letsencrypt-init
- cd containers
- rm -rf dnh-www
- git clone git@github.com:ReasonSharp/dnh-web.git "dnh-www"
- cd dnh-www
- docker build . -t mn-dnh
- cd ../..
- deliver-dnh-config
- # the platform's own services, database included (a fresh database is
- # created from the migrations -- on ENV=dev with demo data)
- deploy "${1}"
- # everything else
- dc up -d
- # TEMPORARY cleanup of dnh.hr
- rm -rf ./containers/dnh-www
-}
-
 rebuild-dnh() {
  export DOMAINS=(dnh.hr *.dnh.hr)
  . "./containers/certbot/letsencrypt-init.sh"
@@ -698,6 +663,13 @@ exec() {
 	dc exec -it ${@}
 }
 
+# Development-only commands (build-platform) live in mn-dev and are loaded
+# only on a dev machine (ENV=dev) -- so they can't be run on live by
+# accident: build-platform takes every container down, dnh.hr included.
+if [ "${ENV}" = "dev" ]; then
+ . ./mn-dev || exit 1
+fi
+
 usage() {
  cat <<USAGE
 Usage: ${0} COMMAND [params]
@@ -713,12 +685,18 @@ Usage: ${0} COMMAND [params]
  db status|backup|restore <file>|reset|upgrade|downgrade|login
                      database version, backup, restore, dev-only rebuild,
                      one version up/down, psql with .env's credentials
- build-platform [version]
-                     set up everything from scratch (certificates, dnh, ...)
  update [-f] dnh|tlsoffloader
  rebuild-dnh
  ps | logs | exec    docker compose passthroughs
 USAGE
+ if declare -F build-platform >/dev/null; then
+  cat <<USAGE
+
+Development only (ENV=dev, see mn-dev):
+ build-platform [version]
+                     set up everything from scratch (certificates, dnh, ...)
+USAGE
+ fi
 }
 
 cmd="${1}"
@@ -730,7 +708,9 @@ case "${cmd}" in
  status)         status;;
  maintenance)    maintenance "${@}";;
  db)             db "${@}";;
- build-platform) build-platform "${@}";;
+ build-platform)
+  declare -F build-platform >/dev/null || die "build-platform is development-only (mn-dev, ENV=dev) -- here, use ./mn deploy [version]"
+  build-platform "${@}";;
  rebuild-dnh)    rebuild-dnh;;
  update)         update "${@}";;
  ps)             list-platform-containers "${@}";;

@@ -12,13 +12,19 @@ Everything goes through `./mn` (run it without arguments for a summary).
 
 ```bash
 ./mn            # first run: creates .env from env.template -- edit it
-./mn build-platform [version]
+./mn build-platform [version]   # ENV=dev only, see below
 ```
 
 `build-platform` sets up everything from scratch: certificates, dnh.hr, the
 TLS proxy, and the platform's services via `deploy` (below). On a fresh
 database the migrations create the whole schema — on `ENV=dev` with demo
 data (`demo@a-to-do.test` / `demo-password`).
+
+It takes every container down first, dnh.hr included, so it's
+**development-only**: it lives in `mn-dev`, which `mn` loads only when
+`.env` says `ENV=dev`. Anywhere else, `./mn build-platform` (and running
+`./mn-dev` itself) is refused — on live, the platform's services go out
+with `./mn deploy [version]`, which leaves dnh.hr alone.
 
 ## Releases
 
