@@ -299,6 +299,18 @@ maintenance-off() {
 
 # Waits for the api to report itself in sync with the database, running
 # the expected version.
+# Recreated containers can come back on other addresses, and the TLS
+# offloader's nginx looks a proxied service's name (api, www, admin, atodo)
+# up only when it loads its config -- until then it keeps sending to the old
+# address: 502s, which the A-To-Do client shows as "being updated". So after
+# recreating services, nginx reloads its config (and looks the names up
+# again); recreating the offloader itself (./mn update tlsoffloader) would
+# do it too.
+reload-tlsoffloader() {
+ dc exec -T tlsoffloader nginx -s reload >/dev/null 2>&1 \
+  || echo "${0}: warning: couldn't reload the TLS offloader -- if the site answers 502, run ./mn update tlsoffloader" >&2
+}
+
 wait-for-health() {
  local expect="${1}" body tries=0
  echo -n "${0}: waiting for the api to report healthy"
@@ -399,6 +411,7 @@ deploy() {
 
  export MN_VERSION="${label}"
  dc up -d --force-recreate "${PLATFORM_SERVICES[@]}"
+ reload-tlsoffloader
  if ! wait-for-health "${label}"; then
   [ "${migrate}" -eq 1 ] || maintenance-on
   echo "${prev}" > "${PREVIOUS_VERSION_FILE}"
@@ -470,6 +483,7 @@ rollback() {
 
  export MN_VERSION="${prev}"
  dc up -d --force-recreate "${PLATFORM_SERVICES[@]}"
+ reload-tlsoffloader
  if ! wait-for-health "${prev}"; then
   [ "${downgraded}" -eq 1 ] || maintenance-on
   die "${prev} isn't healthy either (see ./mn logs api); maintenance is ON"
