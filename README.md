@@ -1,8 +1,8 @@
 # Male Niti Platform
 
 Builds and runs the whole Male Niti platform with Docker Compose: the API
-(`male-niti-api`, which also serves A-To-Do's backend), the website
-(`male-niti-web`, maleniti.com), the admin site (`male-niti-admin`), the
+(`api`, which also serves A-To-Do's backend), the website
+(`web`, maleniti.com), the admin site (`admin`), the
 A-To-Do client (`atodo`), a Postgres database and the TLS proxy in front of
 it all — plus dnh.hr, which is hosted here but is not part of the platform.
 
@@ -65,7 +65,7 @@ nothing and the way back is restoring the backup taken before the deploy.
 ## Database
 
 The schema lives in the API repo as versioned migrations
-(`male-niti-api/db/migrations/`), run by
+(`api/db/migrations/`), run by
 [dbupdater](https://github.com/maleniti/dbupdater)'s `pgupgrade` /
 `pgdowngrade`. The database records its version in its `setting` table; the
 API refuses to serve (503) unless it's exactly the version its code expects.
