@@ -26,7 +26,9 @@ if [ "${ENV}" != "dev" ]; then
 fi
 
 build-platform() {
- mkdir -p files/config files/postgres
+ # before taking anything down: kzn can't start without its passwords
+ kzn-check-env
+ mkdir -p files/config files/postgres files/kzn/covers files/kzndb
  # bring old platform down; in the future this should be done with minimum downtime
  dc down
  # setup configs and certs
@@ -51,6 +53,8 @@ build-platform() {
  docker build . -t mn-dnh
  cd ../..
  deliver-dnh-config
+ # kzn.maleniti.com, the library -- started with everything else below
+ build-kzn 1
  # the platform's own services, database included (a fresh database is
  # created from the migrations -- on ENV=dev with demo data)
  deploy "${1}"

@@ -4,7 +4,8 @@ Builds and runs the whole Male Niti platform with Docker Compose: the API
 (`api`, which also serves A-To-Do's backend), the website
 (`web`, maleniti.com), the admin site (`admin`), the
 A-To-Do client (`atodo`), a Postgres database and the TLS proxy in front of
-it all — plus dnh.hr, which is hosted here but is not part of the platform.
+it all — plus dnh.hr and the parish library (kzn.maleniti.com), which are
+hosted here but are not part of the platform.
 
 Everything goes through `./mn` (run it without arguments for a summary).
 
@@ -16,7 +17,7 @@ Everything goes through `./mn` (run it without arguments for a summary).
 ```
 
 `build-platform` sets up everything from scratch: certificates, dnh.hr, the
-TLS proxy, and the platform's services via `deploy` (below). On a fresh
+library, the TLS proxy, and the platform's services via `deploy` (below). On a fresh
 database the migrations create the whole schema — on `ENV=dev` with demo
 data (`demo@a-to-do.test` / `demo-password`).
 
@@ -108,7 +109,38 @@ so open A-To-Do tabs running an older one offer a reload.
 ## Other services
 
 ```bash
-./mn update [-f] dnh | tlsoffloader
+./mn update [-f] dnh | kzn | tlsoffloader
 ./mn rebuild-dnh
 ./mn ps | logs | exec      # docker compose passthroughs
 ```
+
+Neither dnh.hr nor the library has releases or maintenance mode: `update`
+builds its repo's default branch (only if it changed, or with `-f`) and
+restarts it.
+
+### The library (kzn.maleniti.com)
+
+[maliber](https://github.com/maleniti/maliber) (Angular + PHP), with its own
+MariaDB container, `kzndb` (`files/kzndb/`; covers in `files/kzn/covers/`).
+It needs `KZN_DB_PASS` and `KZN_API_DB_PASS` in `.env`. On its first start it
+creates the schema and an administrator (`KZN_ADMIN_USERNAME`, default
+`admin`); without `KZN_ADMIN_PASSWORD` the password is generated and printed
+once:
+
+```bash
+./mn logs kzn | grep 'Generated password'
+```
+
+The app's own scripts run inside its container, e.g. importing METEL data
+(which holds members' personal data — don't leave a copy on the server):
+
+```bash
+docker cp METEL "$(./mn ps -q kzn)":/tmp/METEL
+./mn exec kzn /app/scripts/import-metel.sh --metel /tmp/METEL
+./mn exec kzn chown -R nginx:nginx /app/storage/covers   # the covers it wrote
+./mn exec kzn rm -rf /tmp/METEL
+```
+
+Adding it to a running server: DNS for kzn.maleniti.com, a certificate that
+covers it, `./mn update kzn`, then `./mn update tlsoffloader` (in that order:
+the TLS proxy won't start while a service it proxies to doesn't exist).

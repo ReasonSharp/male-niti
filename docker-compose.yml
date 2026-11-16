@@ -128,6 +128,61 @@ services:
       - mb-platform
     restart: unless-stopped
 
+  # kzn.maleniti.com, the parish library (maliber) -- like dnh, built and
+  # updated on its own (./mn update kzn), not part of the platform's releases.
+  # The image can run MariaDB inside itself; pointing DB_HOST at kzndb keeps
+  # that off and the data in its own container.
+  kzn:
+    image: mn-kzn:latest
+    restart: unless-stopped
+    ports:
+      # members' personal data: reachable directly only from this machine,
+      # from outside only through the TLS offloader. Keep it on 127.0.0.1:
+      # maliber trusts X-Real-IP/X-Forwarded-Proto from private addresses,
+      # and docker hands it published-port connections from its bridge's
+      # (private) gateway -- published on all interfaces, any visitor could
+      # forge both.
+      - "127.0.0.1:50008:80"
+    networks:
+      - mb-platform
+    environment:
+      DB_HOST: kzndb
+      DB_PORT: "3306"
+      DB_NAME: library
+      DB_USER: library
+      DB_PASS: ${KZN_API_DB_PASS}
+      # the first administrator, created on the first start; with no password
+      # one is generated and printed once in ./mn logs kzn
+      ADMIN_USERNAME: ${KZN_ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${KZN_ADMIN_PASSWORD}
+    volumes:
+      - ./files/kzn/covers:/app/storage/covers:rw
+    depends_on:
+      kzndb:
+        condition: service_healthy
+
+  kzndb:
+    image: mariadb:lts
+    # the app's tables are utf8mb4_croatian_ci; the database and connections
+    # default to the same
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_croatian_ci
+    environment:
+      MARIADB_ROOT_PASSWORD: ${KZN_DB_PASS}
+      MARIADB_DATABASE: library
+      MARIADB_USER: library
+      MARIADB_PASSWORD: ${KZN_API_DB_PASS}
+    volumes:
+      - ./files/kzndb:/var/lib/mysql:rw
+    networks:
+      - mb-platform
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    restart: unless-stopped
+
 networks:
   mb-platform:
 

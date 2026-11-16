@@ -608,6 +608,44 @@ rebuild-dnh() {
  dc up -d dnh --force-recreate
 }
 
+# kzn.maleniti.com, the parish library (maliber). Like dnh, not one of the
+# platform's releases: it's built from its repo's default branch and updated
+# on its own (./mn update kzn). Its certificate is maleniti.com's, so there's
+# no certbot step of its own.
+KZN_FOLDER=kzn
+KZN_REPO=git@github.com:maleniti/maliber.git
+
+kzn-check-env() {
+ [ -n "${KZN_DB_PASS}" ] && [ -n "${KZN_API_DB_PASS}" ] \
+  || die "kzn needs KZN_DB_PASS and KZN_API_DB_PASS in .env"
+}
+
+# Checks containers/kzn out at the repo's default branch and builds mn-kzn,
+# unless that commit is already built (or -f).
+build-kzn() {
+ local force="${1:-0}" before="" after
+ [ -d "containers/${KZN_FOLDER}/.git" ] && before=$(git -C "containers/${KZN_FOLDER}" rev-parse HEAD)
+ sync-source "${KZN_REPO}" "${KZN_FOLDER}" "" || die "couldn't check out kzn"
+ after=$(git -C "containers/${KZN_FOLDER}" rev-parse HEAD)
+ if [ "${force}" -eq 1 ] || [ "${before}" != "${after}" ] || [ -z "$(docker images -q mn-kzn 2>/dev/null)" ]; then
+  docker build "containers/${KZN_FOLDER}" -t mn-kzn || die "building kzn failed -- the running one is unchanged"
+  docker image prune -f >/dev/null
+ else
+  echo "${0}: kzn unchanged, skipping rebuild"
+ fi
+}
+
+update-kzn() {
+ kzn-check-env
+ build-kzn "${1}"
+ mkdir -p files/kzn/covers files/kzndb
+ # the database first, and healthy, so the app's start (which applies its
+ # schema) finds it ready; then only the app is recreated
+ dc up -d --wait kzndb || die "kzndb didn't come up healthy (./mn logs kzndb)"
+ dc up -d --no-deps --force-recreate kzn
+ reload-tlsoffloader
+}
+
 update-one() {
  service="${1}"
  force="${2}"
@@ -626,6 +664,9 @@ update-one() {
    cp "./containers/nginx/tlsoffloader.conf" "./files/config/tlsoffloader.conf"
    dc up -d tlsoffloader --force-recreate
    ;;
+  kzn)
+   update-kzn "${force}"
+   ;;
   dnh)
    cd containers
    before=""
@@ -642,7 +683,7 @@ update-one() {
    dc up -d dnh --force-recreate
    ;;
   *)
-   echo "usage: ${0} update [-f] { dnh | tlsoffloader }"
+   echo "usage: ${0} update [-f] { dnh | kzn | tlsoffloader }"
    exit 1
    ;;
  esac
@@ -699,7 +740,8 @@ Usage: ${0} COMMAND [params]
  db status|backup|restore <file>|reset|upgrade|downgrade|login
                      database version, backup, restore, dev-only rebuild,
                      one version up/down, psql with .env's credentials
- update [-f] dnh|tlsoffloader
+ update [-f] dnh|kzn|tlsoffloader
+                     dnh.hr, kzn.maleniti.com (the library), the TLS proxy
  rebuild-dnh
  ps | logs | exec    docker compose passthroughs
 USAGE
